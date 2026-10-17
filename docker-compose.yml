@@ -1,0 +1,31 @@
+services:
+  smtp-gateway:
+    build: .
+    image: smtp-gateway:latest
+    container_name: smtp-gateway
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      GOMEMLIMIT: 48MiB          # Go GC target; keeps RSS well under mem_limit
+    ports:
+      - "587:2587"               # submission (STARTTLS)
+      - "465:2465"               # submissions (implicit TLS)
+      - "127.0.0.1:8080:8080"    # panel: expose through your reverse proxy only
+    volumes:
+      - gateway-data:/data
+      # Real certificate (picked up automatically when renewed), e.g.:
+      # - ./certs:/certs:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 64m
+    cpus: 0.5
+    pids_limit: 64
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
+
+volumes:
+  gateway-data:

@@ -1,0 +1,61 @@
+{{define "content"}}
+{{with .Data}}
+<div class="page-head">
+  <div>
+    <h1>Credentials</h1>
+    <p class="muted">Each login below is accepted by the gateway and relayed upstream as <code>{{if .Upstream.Username}}{{.Upstream.Username}}{{else}}(no auth){{end}}</code>.</p>
+  </div>
+  <a class="btn primary" href="/credentials/new">New credential</a>
+</div>
+
+<section class="stats">
+  <div class="stat"><span class="stat-label">Sent · 24h</span><span class="stat-value">{{index .Counts "sent"}}</span></div>
+  <div class="stat"><span class="stat-label">Failed upstream · 24h</span><span class="stat-value {{if index .Counts "failed"}}warn{{end}}">{{index .Counts "failed"}}</span></div>
+  <div class="stat"><span class="stat-label">Rejected by policy · 24h</span><span class="stat-value">{{index .Counts "rejected"}}</span></div>
+  <div class="stat upstream">
+    <span class="stat-label">Upstream</span>
+    <span class="stat-mono">{{.Upstream.Addr}} <span class="tag">{{.Upstream.TLS}}</span></span>
+    <form method="post" action="/upstream/test">
+      <input type="hidden" name="csrf" value="{{$.CSRF}}">
+      <button class="btn small">Test connection</button>
+    </form>
+  </div>
+</section>
+{{if .ProbeOK}}
+<div class="notice {{if deref_bool .ProbeOK}}ok{{else}}err{{end}}" role="status">{{.ProbeMsg}}</div>
+{{end}}
+
+{{if .Credentials}}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Username</th><th>Allowed senders</th><th class="num">Limit / h</th><th class="num">Sent</th><th>Last used</th><th>Status</th><th></th></tr></thead>
+  <tbody>
+  {{range .Credentials}}
+  <tr class="{{if not .Enabled}}disabled{{end}}">
+    <td><a class="strong" href="/credentials/{{.ID}}">{{.Username}}</a>{{if .Description}}<div class="muted small">{{.Description}}</div>{{end}}</td>
+    <td>{{if .AllowedSenders}}<span class="mono small">{{join .AllowedSenders ", "}}</span>{{else}}<span class="muted">any</span>{{end}}</td>
+    <td class="num">{{if .RatePerHour}}{{.RatePerHour}}{{else}}<span class="muted">∞</span>{{end}}</td>
+    <td class="num">{{.SentCount}}</td>
+    <td>{{if .LastUsedAt}}<span title="{{tsp .LastUsedAt}} from {{.LastUsedIP}}">{{ago .LastUsedAt}}</span>{{else}}<span class="muted">never</span>{{end}}</td>
+    <td>{{if .Enabled}}<span class="pill ok">active</span>{{else}}<span class="pill off">disabled</span>{{end}}</td>
+    <td><div class="actions">
+      <form method="post" action="/credentials/{{.ID}}/toggle">
+        <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <button class="btn small ghost">{{if .Enabled}}Disable{{else}}Enable{{end}}</button>
+      </form>
+      <a class="btn small ghost" href="/logs?cred={{.ID}}">Log</a>
+    </div></td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{else}}
+<section class="empty">
+  <h2>No credentials yet</h2>
+  <p class="muted">Create one login per client, app or server. Each gets its own password, sender restrictions and rate limit, and can be revoked without touching the others.</p>
+  <a class="btn primary" href="/credentials/new">Create the first credential</a>
+</section>
+{{end}}
+{{end}}
+{{end}}

@@ -1,0 +1,41 @@
+{{define "content"}}
+{{with .Data}}
+<div class="page-head"><h1>Message log</h1></div>
+<form method="get" action="/logs" class="filters">
+  <select name="cred" aria-label="Credential">
+    <option value="">All credentials</option>
+    {{range .Credentials}}<option value="{{.ID}}" {{if eq .ID $.Data.Filter.CredentialID}}selected{{end}}>{{.Username}}</option>{{end}}
+  </select>
+  <select name="status" aria-label="Status">
+    <option value="">Any status</option>
+    {{range $s := list "sent" "failed" "rejected"}}<option value="{{$s}}" {{if eq $s $.Data.Filter.Status}}selected{{end}}>{{$s}}</option>{{end}}
+  </select>
+  <input type="search" name="q" value="{{.Filter.Query}}" placeholder="Search address or detail">
+  <button class="btn">Filter</button>
+</form>
+{{if .Messages}}
+<div class="table-wrap">
+<table class="log">
+  <thead><tr><th>Time</th><th>Credential</th><th>Status</th><th>From</th><th>To</th><th class="num">Size</th><th>Client</th><th>Detail</th></tr></thead>
+  <tbody>
+  {{range .Messages}}
+  <tr>
+    <td class="nowrap" title="{{ago .CreatedAt}}">{{ts .CreatedAt}}</td>
+    <td>{{if .CredentialID}}<a href="/credentials/{{deref .CredentialID}}">{{.Username}}</a>{{else}}{{.Username}}{{end}}</td>
+    <td><span class="pill {{.Status}}">{{.Status}}</span></td>
+    <td class="mono small">{{.MailFrom}}</td>
+    <td class="mono small">{{join .RcptTo ", "}}</td>
+    <td class="num nowrap">{{if .Size}}{{bytes .Size}}{{end}}</td>
+    <td class="mono small">{{.RemoteIP}}</td>
+    <td class="small detail">{{.Detail}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{if .NextBefore}}<p><a class="btn ghost" href="/logs?cred={{if .Filter.CredentialID}}{{.Filter.CredentialID}}{{end}}&status={{.Filter.Status}}&q={{.Filter.Query}}&before={{.NextBefore}}">Older →</a></p>{{end}}
+{{else}}
+<p class="muted">No matching messages.</p>
+{{end}}
+{{end}}
+{{end}}

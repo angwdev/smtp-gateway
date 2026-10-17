@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} · SMTP Gateway</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="wrap top-inner">
+    <a class="brand" href="/"><img src="/static/icon.svg" alt="" width="22" height="22"> SMTP Gateway</a>
+    {{if .User}}
+    <nav>
+      <a href="/" {{if eq .Nav "credentials"}}aria-current="page"{{end}}>Credentials</a>
+      <a href="/logs" {{if eq .Nav "logs"}}aria-current="page"{{end}}>Message log</a>
+      <a href="/audit" {{if eq .Nav "audit"}}aria-current="page"{{end}}>Audit</a>
+    </nav>
+    <form method="post" action="/logout" class="who">
+      <span title="{{.User.Email}}">{{.User.Display}}</span>
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button class="btn ghost small">Sign out</button>
+    </form>
+    {{end}}
+  </div>
+</header>
+<main class="wrap">
+  {{if .Flash}}<div class="notice ok" role="status">{{.Flash}}</div>{{end}}
+  {{if and .Error (ne .Nav "")}}<div class="notice err" role="alert">{{.Error}}</div>{{end}}
+  {{template "content" .}}
+</main>
+</body>
+</html>
