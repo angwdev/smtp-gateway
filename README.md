@@ -70,8 +70,8 @@ docker compose up -d
 docker compose logs -f
 ```
 
-Image tags: `latest` and `X.Y.Z` / `X.Y` for releases, `edge` for the tip of
-`main`, `sha-<commit>` for every build. Each image has a GitHub build-provenance
+Image tags: `latest` (and `edge`) follow `main`. `X.Y.Z` / `X.Y` are
+published for release tags, and `sha-<commit>` for every build. Each image has a GitHub build-provenance
 attestation (`gh attestation verify oci://ghcr.io/angwdev/smtp-gateway:latest -R angwdev/smtp-gateway`).
 
 1. **Register an OIDC client** in your identity provider:

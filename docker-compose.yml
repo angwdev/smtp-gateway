@@ -1,6 +1,6 @@
 services:
   smtp-gateway:
-    image: ghcr.io/angwdev/smtp-gateway:latest   # or pin a version, e.g. :0.1
+    image: ghcr.io/angwdev/smtp-gateway:latest   # or pin a release (:0.1) or commit (:sha-…)
     # build: .                                   # uncomment to build from source
     container_name: smtp-gateway
     restart: unless-stopped
