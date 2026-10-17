@@ -1,4 +1,4 @@
-module github.com/angw/smtp-gateway
+module github.com/angwdev/smtp-gateway
 
 go 1.26.0
 

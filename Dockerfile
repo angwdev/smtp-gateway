@@ -1,12 +1,17 @@
 # syntax=docker/dockerfile:1
-FROM golang:1.26-alpine AS build
+# The build stage runs natively and cross-compiles (pure Go, no cgo), so
+# multi-arch images build fast without QEMU.
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 RUN apk add --no-cache ca-certificates
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
+ARG TARGETOS TARGETARCH TARGETVARIANT
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH GOARM=${TARGETVARIANT#v} \
+    go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
       -o /out/smtp-gateway ./cmd/smtp-gateway \
  && mkdir -p /out/data
 

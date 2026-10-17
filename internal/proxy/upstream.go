@@ -11,7 +11,7 @@ import (
 	"github.com/emersion/go-sasl"
 	"github.com/emersion/go-smtp"
 
-	"github.com/angw/smtp-gateway/internal/config"
+	"github.com/angwdev/smtp-gateway/internal/config"
 )
 
 // Upstream opens authenticated connections to the real mail server using the

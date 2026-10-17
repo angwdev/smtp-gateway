@@ -21,9 +21,9 @@ import (
 
 	"github.com/go-jose/go-jose/v4"
 
-	"github.com/angw/smtp-gateway/internal/config"
-	"github.com/angw/smtp-gateway/internal/proxy"
-	"github.com/angw/smtp-gateway/internal/store"
+	"github.com/angwdev/smtp-gateway/internal/config"
+	"github.com/angwdev/smtp-gateway/internal/proxy"
+	"github.com/angwdev/smtp-gateway/internal/store"
 )
 
 // ---- mock OIDC provider ----------------------------------------------------

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/angw/smtp-gateway/internal/store"
+	"github.com/angwdev/smtp-gateway/internal/store"
 )
 
 func urlQueryEscape(s string) string { return url.QueryEscape(s) }

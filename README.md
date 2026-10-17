@@ -1,5 +1,9 @@
 # SMTP Gateway
 
+[![CI](https://github.com/angwdev/smtp-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/angwdev/smtp-gateway/actions/workflows/ci.yml)
+
+Image: `ghcr.io/angwdev/smtp-gateway` (linux/amd64, arm64, arm/v7)
+
 A small, self-hosted, **credential-translating SMTP relay**. Every client, app or
 server gets its own SMTP login, which you create in an SSO-protected web panel. The
 gateway checks that login, applies per-login policy, and relays the mail to your real
@@ -59,10 +63,16 @@ mail server using **one** upstream credential.
 ## Quick start
 
 ```sh
-cp .env.example .env    # fill in UPSTREAM_*, PUBLIC_URL and OIDC_*
-docker compose up -d --build
+curl -fsSLO https://raw.githubusercontent.com/angwdev/smtp-gateway/main/docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/angwdev/smtp-gateway/main/.env.example -o .env
+$EDITOR .env            # fill in UPSTREAM_*, PUBLIC_URL and OIDC_*
+docker compose up -d
 docker compose logs -f
 ```
+
+Image tags: `latest` and `X.Y.Z` / `X.Y` for releases, `edge` for the tip of
+`main`, `sha-<commit>` for every build. Each image has a GitHub build-provenance
+attestation (`gh attestation verify oci://ghcr.io/angwdev/smtp-gateway:latest -R angwdev/smtp-gateway`).
 
 1. **Register an OIDC client** in your identity provider:
    - Redirect URI: `${PUBLIC_URL}/auth/callback`
@@ -183,6 +193,10 @@ sign in. A warning is logged at startup in that case.
 ## Development
 
 ```sh
+docker compose build                # after uncommenting `build: .` in docker-compose.yml
 go test -race ./...                 # end-to-end tests with a fake upstream and a mock OIDC provider
 go run ./cmd/smtp-gateway           # reads the same env vars
 ```
+
+Releases: push a tag like `v0.2.0`. CI runs the tests, then builds and publishes
+the multi-arch image to GHCR.

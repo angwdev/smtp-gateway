@@ -19,11 +19,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/angw/smtp-gateway/internal/config"
-	"github.com/angw/smtp-gateway/internal/proxy"
-	"github.com/angw/smtp-gateway/internal/store"
-	"github.com/angw/smtp-gateway/internal/tlsutil"
-	"github.com/angw/smtp-gateway/internal/web"
+	"github.com/angwdev/smtp-gateway/internal/config"
+	"github.com/angwdev/smtp-gateway/internal/proxy"
+	"github.com/angwdev/smtp-gateway/internal/store"
+	"github.com/angwdev/smtp-gateway/internal/tlsutil"
+	"github.com/angwdev/smtp-gateway/internal/web"
 )
 
 var version = "dev"

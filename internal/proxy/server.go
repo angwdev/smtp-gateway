@@ -24,8 +24,8 @@ import (
 	"github.com/emersion/go-sasl"
 	"github.com/emersion/go-smtp"
 
-	"github.com/angw/smtp-gateway/internal/config"
-	"github.com/angw/smtp-gateway/internal/store"
+	"github.com/angwdev/smtp-gateway/internal/config"
+	"github.com/angwdev/smtp-gateway/internal/store"
 )
 
 const maxHeaderBytes = 64 << 10
