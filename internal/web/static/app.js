@@ -1,16 +1,51 @@
-// Copy buttons and confirm prompts (no inline handlers: strict CSP).
-document.addEventListener("click", (e) => {
-  const btn = e.target.closest("[data-copy]");
+// Progressive enhancement only: every action works without this file.
+
+// Copy buttons: data-copy="<element id>" copies that element's text.
+document.addEventListener("click", function (e) {
+  var btn = e.target.closest("[data-copy]");
   if (!btn) return;
-  const el = document.getElementById(btn.dataset.copy);
-  if (!el) return;
-  navigator.clipboard.writeText(el.textContent.trim()).then(() => {
-    const label = btn.textContent;
-    btn.textContent = "Copied";
-    setTimeout(() => (btn.textContent = label), 1500);
+  var el = document.getElementById(btn.dataset.copy);
+  if (!el || !navigator.clipboard) return;
+  navigator.clipboard.writeText(el.textContent.trim()).then(function () {
+    var label = btn.querySelector(".label");
+    var live = document.getElementById("live");
+    btn.classList.add("copied");
+    if (label) { label.dataset.text = label.dataset.text || label.textContent; label.textContent = "Copied"; }
+    if (live) live.textContent = "Copied to clipboard";
+    setTimeout(function () {
+      btn.classList.remove("copied");
+      if (label) label.textContent = label.dataset.text;
+    }, 1600);
   });
 });
-document.addEventListener("submit", (e) => {
-  const msg = e.target.dataset.confirm;
-  if (msg && !confirm(msg)) e.preventDefault();
+
+// Busy state for slow submits (upstream test, create): disable and relabel.
+document.addEventListener("submit", function (e) {
+  var form = e.target;
+  var btn = e.submitter || form.querySelector("button[type=submit], button:not([type])");
+  if (!btn || !btn.dataset.busy) return;
+  if (btn.getAttribute("aria-busy") === "true") { e.preventDefault(); return; }
+  setTimeout(function () {
+    btn.setAttribute("aria-busy", "true");
+    var label = btn.querySelector(".label") || btn;
+    label.textContent = btn.dataset.busy;
+  }, 0);
 });
+
+// Dismissable notices.
+document.addEventListener("click", function (e) {
+  var d = e.target.closest(".dismiss");
+  if (d) d.closest(".notice").remove();
+});
+
+// Theme picker.
+(function () {
+  var sel = document.getElementById("theme");
+  if (!sel) return;
+  sel.value = document.documentElement.getAttribute("data-theme") || "dark";
+  sel.closest(".theme").hidden = false;
+  sel.addEventListener("change", function () {
+    document.documentElement.setAttribute("data-theme", sel.value);
+    try { localStorage.setItem("theme", sel.value); } catch (e) {}
+  });
+})();

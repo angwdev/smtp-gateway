@@ -1,35 +1,52 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="color-scheme" content="dark light">
 <title>{{.Title}} · SMTP Gateway</title>
+<script src="/static/theme.js"></script>
+<link rel="preload" href="/static/fonts/plex-sans.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/static/style.css">
 <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
 <script src="/static/app.js" defer></script>
 </head>
 <body>
-<header class="top">
-  <div class="wrap top-inner">
-    <a class="brand" href="/"><img src="/static/icon.svg" alt="" width="22" height="22"> SMTP Gateway</a>
+{{template "icons"}}
+<a class="skip" href="#main">Skip to content</a>
+<header class="bar">
+  <div class="wrap bar-inner">
+    <a class="brand" href="/"><span class="mark">{{icon "envelope-simple"}}</span>SMTP Gateway</a>
     {{if .User}}
-    <nav>
-      <a href="/" {{if eq .Nav "credentials"}}aria-current="page"{{end}}>Credentials</a>
-      <a href="/logs" {{if eq .Nav "logs"}}aria-current="page"{{end}}>Message log</a>
-      <a href="/audit" {{if eq .Nav "audit"}}aria-current="page"{{end}}>Audit</a>
+    <nav class="nav" aria-label="Main">
+      <a href="/" {{if eq .Nav "credentials"}}aria-current="page"{{end}}>{{icon "key"}}Credentials</a>
+      <a href="/logs" {{if eq .Nav "logs"}}aria-current="page"{{end}}>{{icon "list-bullets"}}Message log</a>
+      <a href="/audit" {{if eq .Nav "audit"}}aria-current="page"{{end}}>{{icon "clock-counter-clockwise"}}Audit</a>
     </nav>
-    <form method="post" action="/logout" class="who">
-      <span title="{{.User.Email}}">{{.User.Display}}</span>
-      <input type="hidden" name="csrf" value="{{.CSRF}}">
-      <button class="btn ghost small">Sign out</button>
-    </form>
+    <div class="bar-end">
+      <div class="theme" hidden>
+        <label class="sr-only" for="theme">Theme</label>
+        <select id="theme">
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+          <option value="system">System</option>
+        </select>
+      </div>
+      <span class="who" title="{{.User.Email}}">{{.User.Display}}</span>
+      <form method="post" action="/logout">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <button class="btn quiet sm" title="Sign out">{{icon "sign-out"}}<span class="sr-only">Sign out</span></button>
+      </form>
+    </div>
     {{end}}
   </div>
 </header>
-<main class="wrap">
-  {{if .Flash}}<div class="notice ok" role="status">{{.Flash}}</div>{{end}}
-  {{if and .Error (ne .Nav "")}}<div class="notice err" role="alert">{{.Error}}</div>{{end}}
+<main id="main" class="wrap" tabindex="-1">
+  {{if .Flash}}<div class="notice ok" role="status">{{icon "check-circle"}}<p>{{.Flash}}</p><button class="dismiss" type="button" aria-label="Dismiss">{{icon "x-circle"}}</button></div>{{end}}
+  {{if and .Error (ne .Nav "")}}<div class="notice bad" role="alert">{{icon "warning"}}<p>{{.Error}}</p></div>{{end}}
   {{template "content" .}}
 </main>
+<div id="live" class="sr-only" aria-live="polite"></div>
 </body>
 </html>

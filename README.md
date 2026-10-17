@@ -18,7 +18,7 @@ mail server using **one** upstream credential.
          Panel (OIDC SSO): create / rotate / disable logins, message log, audit log
 ```
 
-- One static Go binary in a `scratch` image (about 6 MB compressed). It typically uses
+- One static Go binary in a `scratch` image (about 8 MB compressed). It typically uses
   under 25 MB of RAM and almost no CPU when idle.
 - Mail is **streamed** to the upstream server and never queued on disk. The client
   gets the upstream's own reply, so a message is either accepted by your mail server
@@ -47,9 +47,10 @@ mail server using **one** upstream credential.
   login can't spoof another sender.
 - **Rate limit per credential** (messages per hour).
 - **Brute-force lockout** per client IP.
-- **TLS**: STARTTLS on 587 and implicit TLS on 465. Use your own certificate, which
-  is reloaded automatically when renewed, or let the gateway generate a self-signed
-  one. AUTH without TLS is refused unless you turn it on explicitly.
+- **TLS**: STARTTLS on 587 and implicit TLS (SMTPS) on 465. The certificate can be
+  **issued automatically with ACME** ([lego](https://go-acme.github.io/lego/), DNS-01
+  via Cloudflare or AWS Route 53), come from your own files (re-read when renewed),
+  or be self-signed. AUTH without TLS is refused unless you turn it on explicitly.
 - **AUTH PLAIN and LOGIN** for clients. Upstream can use STARTTLS, implicit TLS or
   plain, with PLAIN or LOGIN auth. You can optionally force a fixed envelope sender
   upstream (`UPSTREAM_ENVELOPE_FROM`).
@@ -57,8 +58,9 @@ mail server using **one** upstream credential.
   Authelia, Keycloak, Zitadel, Pocket ID, Kanidm, Google, Entra ID…). You can limit
   access by e-mail, by domain or by group. It has CSRF protection, a strict CSP and
   no JavaScript framework. It shows the message log (searchable, retention
-  configurable), an audit log of every sign-in and change, and a button that tests
-  the upstream connection.
+  configurable), an audit log of every sign-in and change, the certificate's status
+  with a "Renew now" button, and a button that tests the upstream connection. It is
+  dark by default, with light and system themes.
 
 ## Quick start
 
@@ -100,7 +102,56 @@ client not to verify it. Alternatively, keep the gateway reachable only on an
 internal network and set `SMTP_ALLOW_INSECURE_AUTH=true` for devices that can't do
 TLS, such as old printers and NAS boxes.
 
-### Using a real certificate
+### Automatic certificates (ACME)
+
+Set `TLS_SOURCE=acme` and the gateway gets and renews its own certificate from
+Let's Encrypt (or ZeroSSL, Google Trust Services, any ACME CA) using
+[lego](https://go-acme.github.io/lego/). It uses the **DNS-01** challenge, so no
+inbound port 80 or 443 is needed, which suits a mail host. Two DNS providers are
+built in:
+
+```env
+TLS_SOURCE=acme
+ACME_ACCEPT_TOS=true
+ACME_EMAIL=you@example.com
+ACME_DOMAINS=smtp.example.com           # defaults to SMTP_HOSTNAME
+
+# Cloudflare: API token with Zone:Read and DNS:Edit for the zone
+ACME_DNS_PROVIDER=cloudflare
+CLOUDFLARE_DNS_API_TOKEN=...
+
+# or AWS Route 53 (env keys, shared config or an IAM role)
+# ACME_DNS_PROVIDER=route53
+# AWS_ACCESS_KEY_ID=...
+# AWS_SECRET_ACCESS_KEY=...
+# AWS_REGION=us-east-1
+# AWS_HOSTED_ZONE_ID=...                # optional
+```
+
+How it behaves:
+
+- **Never blocks mail.** Until the first certificate is issued, and whenever the CA
+  or DNS provider is unreachable, the gateway keeps serving its current (or a
+  self-signed) certificate. Failed attempts back off from 5 minutes to 6 hours,
+  well inside Let's Encrypt's rate limits.
+- **Renewal** follows the CA's ACME Renewal Information (RFC 9773) when offered.
+  Otherwise it renews once a third of the lifetime remains, which works for both
+  90-day and shorter-lived certificates. Renewals tell the CA which certificate
+  they replace.
+- **State** lives in `/data/acme/`: the account key (per CA) and the current
+  certificate. Changing `ACME_DOMAINS`, `ACME_CA` or `ACME_KEY_TYPE` triggers a new
+  order on the next start.
+- **Panel**: the Certificate card shows the issuer, expiry, renewal schedule and
+  the last error, and has a **Renew now** button.
+- **Debugging**: with `LOG_LEVEL=debug`, every failed propagation check is logged
+  with its reason. Set `ACME_DNS_SKIP_AUTHORITATIVE=true` if your network blocks
+  outbound DNS to the zone's authoritative servers. `ACME_DNS_RESOLVERS` picks the
+  recursive resolvers used for the check.
+
+Try `ACME_CA=letsencrypt-staging` first if you're experimenting; staging has much
+higher rate limits (its certificates aren't trusted by clients).
+
+### Using your own certificate files
 
 Mount the certificate and set the paths. The files are re-read within a minute of
 changing, so no restart is needed on renewal:
@@ -138,7 +189,17 @@ Variables that hold secrets (`UPSTREAM_PASSWORD`, `OIDC_CLIENT_SECRET`,
 | `SMTP_HOSTNAME` | container hostname | Greeting name and self-signed cert name; shown in the panel |
 | `SMTP_SUBMISSION_ADDR` | `:2587` | STARTTLS listener (empty = off) |
 | `SMTP_SMTPS_ADDR` | `:2465` | Implicit-TLS listener (empty = off) |
-| `TLS_CERT_FILE` / `TLS_KEY_FILE` | | Self-signed cert in `/data` if unset |
+| `TLS_SOURCE` | `self-signed` (`file` if `TLS_CERT_FILE` is set) | `self-signed`, `file` or `acme` |
+| `TLS_CERT_FILE` / `TLS_KEY_FILE` | | For `TLS_SOURCE=file` |
+| `ACME_ACCEPT_TOS` | `false` | Must be `true` for `acme` |
+| `ACME_EMAIL` | *(required for acme)* | Account contact at the CA |
+| `ACME_DOMAINS` | `SMTP_HOSTNAME` | Comma-separated names on the certificate |
+| `ACME_DNS_PROVIDER` | *(required for acme)* | `cloudflare` or `route53` (credentials via `CLOUDFLARE_*` / `AWS_*`) |
+| `ACME_CA` | `letsencrypt` | `letsencrypt`, `letsencrypt-staging`, `zerossl`, `googletrust` or a directory URL |
+| `ACME_KEY_TYPE` | `ec256` | `ec256`, `ec384`, `rsa2048`, `rsa3072`, `rsa4096` |
+| `ACME_EAB_KID` / `ACME_EAB_HMAC` | | External account binding (ZeroSSL, Google) |
+| `ACME_DNS_RESOLVERS` | system | Recursive resolvers for the propagation check |
+| `ACME_DNS_SKIP_AUTHORITATIVE` | `false` | Skip checking the zone's authoritative servers |
 | `SMTP_ALLOW_INSECURE_AUTH` | `false` | Allow AUTH over plaintext |
 | `SMTP_MAX_MESSAGE_MB` | `25` | |
 | `SMTP_MAX_RECIPIENTS` | `100` | Per message |
@@ -190,11 +251,21 @@ sign in. A warning is logged at startup in that case.
   `GOMEMLIMIT=48MiB`, a read-only root filesystem, all capabilities dropped and
   `no-new-privileges`.
 
+## Third-party assets
+
+The panel embeds [IBM Plex Sans and Plex Mono](https://github.com/IBM/plex) (SIL Open
+Font License 1.1, `internal/web/static/fonts/OFL.txt`) and icons from
+[Phosphor](https://phosphoricons.com) (MIT, `internal/web/static/PHOSPHOR-LICENSE.txt`).
+Nothing is loaded from third-party servers.
+
 ## Development
 
 ```sh
 docker compose build                # after uncommenting `build: .` in docker-compose.yml
 go test -race ./...                 # end-to-end tests with a fake upstream and a mock OIDC provider
+# The ACME test runs only when Pebble is installed:
+go install github.com/letsencrypt/pebble/v2/cmd/pebble@v2.10.1
+go install github.com/letsencrypt/pebble/v2/cmd/pebble-challtestsrv@v2.10.1
 go run ./cmd/smtp-gateway           # reads the same env vars
 ```
 

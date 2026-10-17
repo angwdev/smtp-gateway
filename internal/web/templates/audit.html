@@ -1,15 +1,15 @@
 {{define "content"}}
-<div class="page-head"><div><h1>Audit log</h1><p class="muted">Panel sign-ins and every change to credentials.</p></div></div>
+<div class="head"><div><h1>Audit log</h1><p>Every sign-in and every change to credentials or certificates.</p></div></div>
 {{if .Data}}
-<div class="table-wrap">
+<div class="table">
 <table>
-  <thead><tr><th>Time</th><th>Who</th><th>Action</th><th>Detail</th></tr></thead>
+  <thead><tr><th scope="col">When</th><th scope="col">Who</th><th scope="col">Action</th><th scope="col">Detail</th></tr></thead>
   <tbody>
   {{range .Data}}
-  <tr><td class="nowrap" title="{{ago .CreatedAt}}">{{ts .CreatedAt}}</td><td>{{.Actor}}</td><td><span class="mono small">{{.Action}}</span></td><td class="small">{{.Detail}}</td></tr>
+  <tr><td class="nowrap" title="{{ts .CreatedAt}}">{{ago .CreatedAt}}</td><td>{{.Actor}}</td><td><span class="chip">{{.Action}}</span></td><td class="detail">{{.Detail}}</td></tr>
   {{end}}
   </tbody>
 </table>
 </div>
-{{else}}<p class="muted">Nothing yet.</p>{{end}}
+{{else}}<section class="empty"><h2>Nothing recorded yet</h2><p>Sign-ins and changes made in this panel appear here.</p></section>{{end}}
 {{end}}

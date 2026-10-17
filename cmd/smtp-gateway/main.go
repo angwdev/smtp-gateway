@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/angwdev/smtp-gateway/internal/acme"
 	"github.com/angwdev/smtp-gateway/internal/config"
 	"github.com/angwdev/smtp-gateway/internal/proxy"
 	"github.com/angwdev/smtp-gateway/internal/store"
@@ -81,13 +82,13 @@ func run() error {
 	}
 	defer st.Close()
 
-	certs, err := tlsutil.New(cfg.TLSCertFile, cfg.TLSKeyFile, cfg.DataDir, cfg.Hostname)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	certs, acmeMgr, err := setupTLS(ctx, cfg)
 	if err != nil {
 		return err
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 
 	up := proxy.NewUpstream(cfg.Upstream)
 	gw := proxy.New(cfg, st, up)
@@ -114,7 +115,7 @@ func run() error {
 		if len(cfg.OIDCAllowedEmails) == 0 && len(cfg.OIDCAllowedGroups) == 0 {
 			slog.Warn("OIDC_ALLOWED_EMAILS and OIDC_ALLOWED_GROUPS are empty: any user your identity provider authenticates can manage credentials")
 		}
-		ws, err := web.New(cfg, st, up, key)
+		ws, err := web.New(cfg, st, up, certs, acmeMgr, key)
 		if err != nil {
 			return err
 		}
@@ -135,6 +136,32 @@ func run() error {
 	defer cancel()
 	gw.Shutdown(sctx)
 	return err
+}
+
+// setupTLS picks the certificate source. With ACME, a self-signed
+// certificate is served until the first one is issued, so SMTP is never down
+// because the CA or DNS provider is.
+func setupTLS(ctx context.Context, cfg *config.Config) (*tlsutil.Loader, *acme.Manager, error) {
+	switch cfg.TLSSource {
+	case "file":
+		l, err := tlsutil.NewFile(cfg.TLSCertFile, cfg.TLSKeyFile)
+		return l, nil, err
+	case "acme":
+		l, err := tlsutil.NewSelfSigned(cfg.DataDir, cfg.Hostname)
+		if err != nil {
+			return nil, nil, err
+		}
+		m, err := acme.New(cfg.ACME, cfg.DataDir, l)
+		if err != nil {
+			return nil, nil, err
+		}
+		slog.Info("acme enabled", "domains", strings.Join(cfg.ACME.Domains, ","), "dns_provider", cfg.ACME.DNSProvider, "ca", cfg.ACME.CAURL)
+		go m.Run(ctx)
+		return l, m, nil
+	}
+	slog.Warn("serving a self-signed certificate; set TLS_SOURCE=acme or TLS_CERT_FILE for a trusted one", "host", cfg.Hostname)
+	l, err := tlsutil.NewSelfSigned(cfg.DataDir, cfg.Hostname)
+	return l, nil, err
 }
 
 func pruneLoop(ctx context.Context, st *store.Store, retention time.Duration) {

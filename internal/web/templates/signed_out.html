@@ -1,7 +1,7 @@
 {{define "content"}}
-<section class="center-card">
-  <h1>Signed out</h1>
-  <p>You have been signed out of the SMTP Gateway panel.</p>
-  <p><a class="btn primary" href="/login">Sign in again</a></p>
+<section class="lonely">
+  <h1>You're signed out</h1>
+  <p>The relay keeps running. Sign in again to manage credentials.</p>
+  <a class="btn primary" href="/login">{{icon "lock-key"}}Sign in with SSO</a>
 </section>
 {{end}}

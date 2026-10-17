@@ -1,49 +1,81 @@
 {{define "content"}}
 {{with .Data}}
-<div class="page-head">
+<div class="head">
   <div>
     <h1>Credentials</h1>
-    <p class="muted">Each login below is accepted by the gateway and relayed upstream as <code>{{if .Upstream.Username}}{{.Upstream.Username}}{{else}}(no auth){{end}}</code>.</p>
+    <p>{{.Active}} active {{plural .Active "login" "logins"}}, all relayed to <span class="mono">{{.Upstream.Addr}}</span> as <span class="mono">{{if .Upstream.Username}}{{.Upstream.Username}}{{else}}(no auth){{end}}</span>.</p>
   </div>
-  <a class="btn primary" href="/credentials/new">New credential</a>
+  <a class="btn primary" href="/credentials/new">{{icon "plus"}}New credential</a>
 </div>
 
-<section class="stats">
-  <div class="stat"><span class="stat-label">Sent · 24h</span><span class="stat-value">{{index .Counts "sent"}}</span></div>
-  <div class="stat"><span class="stat-label">Failed upstream · 24h</span><span class="stat-value {{if index .Counts "failed"}}warn{{end}}">{{index .Counts "failed"}}</span></div>
-  <div class="stat"><span class="stat-label">Rejected by policy · 24h</span><span class="stat-value">{{index .Counts "rejected"}}</span></div>
-  <div class="stat upstream">
-    <span class="stat-label">Upstream</span>
-    <span class="stat-mono">{{.Upstream.Addr}} <span class="tag">{{.Upstream.TLS}}</span></span>
-    <form method="post" action="/upstream/test">
-      <input type="hidden" name="csrf" value="{{$.CSRF}}">
-      <button class="btn small">Test connection</button>
-    </form>
+<section class="overview" aria-label="Overview">
+  <dl class="metrics">
+    <div class="metric"><dt>Sent, 24 h</dt><dd>{{index .Counts "sent"}}</dd></div>
+    <div class="metric"><dt>Failed upstream</dt><dd class="{{if index .Counts "failed"}}bad{{end}}">{{index .Counts "failed"}}</dd></div>
+    <div class="metric"><dt>Blocked by policy</dt><dd class="{{if index .Counts "rejected"}}warn{{end}}">{{index .Counts "rejected"}}</dd></div>
+  </dl>
+
+  <div class="systems">
+    <section class="panel" aria-labelledby="up-h">
+      <h2 id="up-h">{{icon "plug"}}Upstream</h2>
+      <dl class="facts">
+        <dt>Server</dt><dd class="mono">{{.Upstream.Addr}}</dd>
+        <dt>Security</dt><dd>{{if eq .Upstream.TLS "tls"}}Implicit TLS{{else if eq .Upstream.TLS "starttls"}}STARTTLS{{else}}Plaintext{{end}}</dd>
+        <dt>Login</dt><dd class="mono">{{if .Upstream.Username}}{{.Upstream.Username}}{{else}}none{{end}}</dd>
+        {{if .Upstream.EnvelopeFrom}}<dt>Envelope</dt><dd class="mono">{{.Upstream.EnvelopeFrom}}</dd>{{end}}
+      </dl>
+      <form method="post" action="/upstream/test">
+        <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <button class="btn sm" data-busy="Testing…">{{icon "arrows-clockwise"}}<span class="label">Test connection</span></button>
+      </form>
+      {{if .ProbeOK}}
+      <p class="result {{if deref_bool .ProbeOK}}ok{{else}}bad{{end}}" role="status">{{if deref_bool .ProbeOK}}{{icon "check-circle"}}{{else}}{{icon "warning"}}{{end}}<span>{{.ProbeMsg}}</span></p>
+      {{end}}
+    </section>
+
+    {{with .Cert}}
+    <section class="panel" aria-labelledby="tls-h">
+      <h2 id="tls-h">{{icon "shield-check"}}Certificate</h2>
+      <dl class="facts">
+        <dt>Source</dt><dd>{{.Label}}</dd>
+        <dt>Names</dt><dd class="mono">{{join .Names ", "}}</dd>
+        <dt>Expires</dt><dd><span class="status {{.Level}}" title="{{ts .NotAfter}}">{{if lt .DaysLeft 0}}Expired{{else if gt .DaysLeft 730}}In {{div .DaysLeft 365}} years{{else}}In {{.DaysLeft}} {{plural .DaysLeft "day" "days"}}{{end}}</span></dd>
+        {{if .ACME}}{{with .ACME}}
+        <dt>Renewal</dt><dd>{{if .Renewing}}In progress…{{else if .ARI}}Scheduled by the CA{{else}}At ⅔ of lifetime{{end}}{{if and (not .Renewing) (not .NextCheck.IsZero)}}<span class="muted"> · next check {{until .NextCheck}}</span>{{end}}</dd>
+        {{end}}{{end}}
+      </dl>
+      {{if and .ACME .ACME.LastError}}<p class="result bad">{{icon "warning"}}<span>Last attempt failed: {{.ACME.LastError}}</span></p>{{end}}
+      {{if eq .Source "self-signed"}}<p class="hint">Clients must skip verification. Set <code>TLS_SOURCE=acme</code> for a trusted certificate.</p>{{end}}
+      {{if .ACME}}
+      <form method="post" action="/tls/renew" class="renew">
+        <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <button class="btn sm" {{if .ACME.Renewing}}disabled{{end}}>{{icon "arrows-clockwise"}}<span class="label">Renew now</span></button>
+      </form>
+      {{end}}
+    </section>
+    {{end}}
   </div>
 </section>
-{{if .ProbeOK}}
-<div class="notice {{if deref_bool .ProbeOK}}ok{{else}}err{{end}}" role="status">{{.ProbeMsg}}</div>
-{{end}}
 
 {{if .Credentials}}
-<div class="table-wrap">
-<table>
-  <thead><tr><th>Username</th><th>Allowed senders</th><th class="num">Limit / h</th><th class="num">Sent</th><th>Last used</th><th>Status</th><th></th></tr></thead>
+<div class="table">
+<table class="creds">
+  <thead><tr><th scope="col">Login</th><th scope="col">Allowed senders</th><th scope="col" class="num">Limit / hour</th><th scope="col" class="num">Sent</th><th scope="col">Last used</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
   <tbody>
   {{range .Credentials}}
-  <tr class="{{if not .Enabled}}disabled{{end}}">
-    <td><a class="strong" href="/credentials/{{.ID}}">{{.Username}}</a>{{if .Description}}<div class="muted small">{{.Description}}</div>{{end}}</td>
-    <td>{{if .AllowedSenders}}<span class="mono small">{{join .AllowedSenders ", "}}</span>{{else}}<span class="muted">any</span>{{end}}</td>
-    <td class="num">{{if .RatePerHour}}{{.RatePerHour}}{{else}}<span class="muted">∞</span>{{end}}</td>
-    <td class="num">{{.SentCount}}</td>
-    <td>{{if .LastUsedAt}}<span title="{{tsp .LastUsedAt}} from {{.LastUsedIP}}">{{ago .LastUsedAt}}</span>{{else}}<span class="muted">never</span>{{end}}</td>
-    <td>{{if .Enabled}}<span class="pill ok">active</span>{{else}}<span class="pill off">disabled</span>{{end}}</td>
-    <td><div class="actions">
+  <tr class="{{if not .Enabled}}is-off{{end}}">
+    <td class="login"><a href="/credentials/{{.ID}}" class="mono">{{.Username}}</a>{{if .Description}}<div class="desc">{{.Description}}</div>{{end}}</td>
+    <td class="senders">{{if .AllowedSenders}}<span class="mono small">{{join .AllowedSenders ", "}}</span>{{else}}<span class="muted">Any address</span>{{end}}</td>
+    <td class="num meta-cell" data-label="Limit">{{if .RatePerHour}}{{.RatePerHour}}{{else}}<span class="muted">None</span>{{end}}</td>
+    <td class="num meta-cell" data-label="Sent">{{.SentCount}}</td>
+    <td class="meta-cell" data-label="Last used">{{if .LastUsedAt}}<span title="{{tsp .LastUsedAt}} from {{.LastUsedIP}}">{{ago .LastUsedAt}}</span>{{else}}<span class="muted">Never</span>{{end}}</td>
+    <td class="state">{{if .Enabled}}<span class="status ok">Active</span>{{else}}<span class="status off">Disabled</span>{{end}}</td>
+    <td class="actions-cell"><div class="actions">
       <form method="post" action="/credentials/{{.ID}}/toggle">
         <input type="hidden" name="csrf" value="{{$.CSRF}}">
-        <button class="btn small ghost">{{if .Enabled}}Disable{{else}}Enable{{end}}</button>
+        <button class="btn sm quiet">{{if .Enabled}}{{icon "prohibit"}}Disable{{else}}{{icon "power"}}Enable{{end}}</button>
       </form>
-      <a class="btn small ghost" href="/logs?cred={{.ID}}">Log</a>
+      <a class="btn sm quiet" href="/logs?cred={{.ID}}">{{icon "list-bullets"}}Log</a>
     </div></td>
   </tr>
   {{end}}
@@ -52,9 +84,14 @@
 </div>
 {{else}}
 <section class="empty">
-  <h2>No credentials yet</h2>
-  <p class="muted">Create one login per client, app or server. Each gets its own password, sender restrictions and rate limit, and can be revoked without touching the others.</p>
-  <a class="btn primary" href="/credentials/new">Create the first credential</a>
+  <h2>Create the first login</h2>
+  <p>Give every app, server or device its own SMTP login. Each one gets its own password, sender rules and hourly limit, and you can revoke it without touching the others.</p>
+  <ol>
+    <li>Create a credential and copy the password shown.</li>
+    <li>Point the client at <span class="mono">{{$.Cfg.Hostname}}</span>, port {{if $.Cfg.PublicSubmissionPort}}{{$.Cfg.PublicSubmissionPort}} (STARTTLS){{else}}{{$.Cfg.PublicSMTPSPort}} (SSL/TLS){{end}}.</li>
+    <li>Watch the first message arrive in the message log.</li>
+  </ol>
+  <a class="btn primary" href="/credentials/new">{{icon "plus"}}New credential</a>
 </section>
 {{end}}
 {{end}}

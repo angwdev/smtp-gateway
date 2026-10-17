@@ -24,6 +24,7 @@ import (
 	"github.com/angwdev/smtp-gateway/internal/config"
 	"github.com/angwdev/smtp-gateway/internal/proxy"
 	"github.com/angwdev/smtp-gateway/internal/store"
+	"github.com/angwdev/smtp-gateway/internal/tlsutil"
 )
 
 // ---- mock OIDC provider ----------------------------------------------------
@@ -120,7 +121,11 @@ func newEnv(t *testing.T, mutate func(*config.Config)) *env {
 	if mutate != nil {
 		mutate(cfg)
 	}
-	s, err := New(cfg, st, proxy.NewUpstream(cfg.Upstream), []byte("0123456789abcdef0123456789abcdef"))
+	certs, err := tlsutil.NewSelfSigned(t.TempDir(), cfg.Hostname)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(cfg, st, proxy.NewUpstream(cfg.Upstream), certs, nil, []byte("0123456789abcdef0123456789abcdef"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,6 +206,18 @@ func TestUnauthenticatedRedirectsToLogin(t *testing.T) {
 	if resp, _ := e.get("/healthz"); resp.StatusCode != 200 {
 		t.Fatalf("healthz = %d", resp.StatusCode)
 	}
+	// Every self-hosted asset type the pages use must be allowed by the CSP.
+	csp := resp.Header.Get("Content-Security-Policy")
+	for _, d := range []string{"script-src 'self'", "style-src 'self'", "font-src 'self'"} {
+		if !strings.Contains(csp, d) {
+			t.Errorf("CSP %q lacks %s", csp, d)
+		}
+	}
+	for _, p := range []string{"/static/style.css", "/static/app.js", "/static/theme.js", "/static/fonts/plex-sans.woff2", "/static/fonts/plex-mono-400.woff2"} {
+		if resp, _ := e.get(p); resp.StatusCode != 200 {
+			t.Errorf("GET %s = %d", p, resp.StatusCode)
+		}
+	}
 }
 
 func TestLoginCreateAndUseCredential(t *testing.T) {
@@ -209,7 +226,7 @@ func TestLoginCreateAndUseCredential(t *testing.T) {
 	if resp.StatusCode != http.StatusFound || resp.Header.Get("Location") != "/logs" {
 		t.Fatalf("callback: %d %q", resp.StatusCode, resp.Header.Get("Location"))
 	}
-	if _, body := e.get("/"); !strings.Contains(body, "No credentials yet") || !strings.Contains(body, "Ada") {
+	if _, body := e.get("/"); !strings.Contains(body, "Create the first login") || !strings.Contains(body, "Ada") {
 		t.Fatal("dashboard not rendered for logged-in user")
 	}
 
@@ -226,7 +243,7 @@ func TestLoginCreateAndUseCredential(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("create = %d: %s", resp.StatusCode, body)
 	}
-	m := regexp.MustCompile(`id="p">([A-Za-z0-9]{32})<`).FindStringSubmatch(body)
+	m := regexp.MustCompile(`id="pw">([A-Za-z0-9]{32})<`).FindStringSubmatch(body)
 	if m == nil {
 		t.Fatalf("password not shown: %s", body)
 	}
@@ -239,7 +256,7 @@ func TestLoginCreateAndUseCredential(t *testing.T) {
 	}
 
 	// Duplicate is a form error, not a 500.
-	if resp, body := e.post("/credentials", form, ""); resp.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(body, "already exists") {
+	if resp, body := e.post("/credentials", form, ""); resp.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(body, "already taken") {
 		t.Fatalf("duplicate = %d", resp.StatusCode)
 	}
 
@@ -264,9 +281,22 @@ func TestLoginCreateAndUseCredential(t *testing.T) {
 	if _, body := e.get("/audit"); !strings.Contains(body, "credential.rotate") || !strings.Contains(body, "credential.delete") {
 		t.Fatal("audit log incomplete")
 	}
-	for _, p := range []string{"/logs", "/logs?status=sent&q=x", "/credentials/new"} {
-		if resp, _ := e.get(p); resp.StatusCode != 200 {
-			t.Fatalf("GET %s = %d", p, resp.StatusCode)
+	if resp, _ := e.post("/tls/renew", url.Values{"csrf": {form.Get("csrf")}}, ""); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("renew without acme = %d, want 404", resp.StatusCode)
+	}
+	// Field errors render next to the field.
+	bad := url.Values{"csrf": {form.Get("csrf")}, "username": {"x"}, "allowed_senders": {"not-an-address"}, "enabled": {"on"}}
+	if resp, body := e.post("/credentials", bad, ""); resp.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(body, `id="senders-err"`) || !strings.Contains(body, `aria-invalid="true"`) {
+		t.Fatalf("field error = %d", resp.StatusCode)
+	} else if !regexp.MustCompile(`name="enabled"\s+checked`).MatchString(body) {
+		// Regression: an early validation return used to drop the checkbox,
+		// so fixing the error and resubmitting created a disabled login.
+		t.Fatal("re-rendered form lost the enabled checkbox")
+	}
+	for _, p := range []string{"/logs", "/logs?status=sent&q=x", "/credentials/new", "/audit", "/signed-out", "/nope"} {
+		resp, _ := e.get(p)
+		if want := map[bool]int{true: 404, false: 200}[p == "/nope"]; resp.StatusCode != want {
+			t.Fatalf("GET %s = %d, want %d", p, resp.StatusCode, want)
 		}
 	}
 

@@ -16,29 +16,35 @@ import (
 	"strings"
 	"time"
 
+	"github.com/angwdev/smtp-gateway/internal/acme"
 	"github.com/angwdev/smtp-gateway/internal/config"
 	"github.com/angwdev/smtp-gateway/internal/proxy"
 	"github.com/angwdev/smtp-gateway/internal/store"
+	"github.com/angwdev/smtp-gateway/internal/tlsutil"
 )
 
-//go:embed templates/*.html static/*
+//go:embed templates/*.html static/* static/fonts/*
 var assets embed.FS
 
 type Server struct {
 	cfg      *config.Config
 	store    *store.Store
 	upstream *proxy.Upstream
+	certs    *tlsutil.Loader
+	acme     *acme.Manager // nil unless TLS_SOURCE=acme
 	oidc     *oidcClient
 	key      []byte
 	pages    map[string]*template.Template
 	handler  http.Handler
 }
 
-func New(cfg *config.Config, st *store.Store, up *proxy.Upstream, sessionKey []byte) (*Server, error) {
+func New(cfg *config.Config, st *store.Store, up *proxy.Upstream, certs *tlsutil.Loader, acmeMgr *acme.Manager, sessionKey []byte) (*Server, error) {
 	s := &Server{
 		cfg:      cfg,
 		store:    st,
 		upstream: up,
+		certs:    certs,
+		acme:     acmeMgr,
 		key:      sessionKey,
 		oidc: &oidcClient{
 			issuer:       cfg.OIDCIssuer,
@@ -63,6 +69,7 @@ func New(cfg *config.Config, st *store.Store, up *proxy.Upstream, sessionKey []b
 
 	mux.HandleFunc("GET /{$}", s.protect(s.handleDashboard))
 	mux.HandleFunc("POST /upstream/test", s.protect(s.handleUpstreamTest))
+	mux.HandleFunc("POST /tls/renew", s.protect(s.handleRenewCert))
 	mux.HandleFunc("GET /credentials/new", s.protect(s.handleNewCredential))
 	mux.HandleFunc("POST /credentials", s.protect(s.handleCreateCredential))
 	mux.HandleFunc("GET /credentials/{id}", s.protect(s.handleEditCredential))
@@ -195,7 +202,29 @@ var funcs = template.FuncMap{
 			return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 		}
 	},
-	"join":       strings.Join,
+	"join": strings.Join,
+	"div":  func(a, b int) int { return a / b },
+	"icon": func(name string) template.HTML {
+		return template.HTML(`<svg class="icon" aria-hidden="true" focusable="false"><use href="#i-` + template.HTMLEscapeString(name) + `"/></svg>`)
+	},
+	"plural": func(n int, one, many string) string {
+		if n == 1 {
+			return one
+		}
+		return many
+	},
+	"until": func(t time.Time) string {
+		d := time.Until(t)
+		switch {
+		case d < time.Minute:
+			return "in under a minute"
+		case d < time.Hour:
+			return fmt.Sprintf("in %d min", int(d.Minutes()))
+		case d < 48*time.Hour:
+			return fmt.Sprintf("in %d h", int(d.Hours()))
+		}
+		return fmt.Sprintf("in %d days", int(d.Hours()/24))
+	},
 	"list":       func(v ...string) []string { return v },
 	"deref_bool": func(b *bool) bool { return b != nil && *b },
 	"bytes": func(n int64) string {
@@ -223,10 +252,10 @@ func (s *Server) parseTemplates() error {
 	}
 	for _, n := range names {
 		base := strings.TrimSuffix(strings.TrimPrefix(n, "templates/"), ".html")
-		if base == "layout" {
+		if base == "layout" || base == "icons" {
 			continue
 		}
-		t, err := template.New("layout.html").Funcs(funcs).ParseFS(assets, "templates/layout.html", n)
+		t, err := template.New("layout.html").Funcs(funcs).ParseFS(assets, "templates/layout.html", "templates/icons.html", n)
 		if err != nil {
 			return fmt.Errorf("template %s: %w", n, err)
 		}
@@ -263,7 +292,7 @@ func (s *Server) handleSignedOut(w http.ResponseWriter, r *http.Request) {
 }
 
 func securityHeaders(h http.Handler, formAction string) http.Handler {
-	csp := "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; form-action " + formAction + "; frame-ancestors 'none'; base-uri 'none'"
+	csp := "default-src 'none'; style-src 'self'; script-src 'self'; font-src 'self'; img-src 'self' data:; form-action " + formAction + "; frame-ancestors 'none'; base-uri 'none'"
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hd := w.Header()
 		hd.Set("Content-Security-Policy", csp)

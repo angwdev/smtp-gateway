@@ -21,8 +21,10 @@ type Config struct {
 	Hostname          string
 	SubmissionAddr    string // STARTTLS listener, empty disables
 	SMTPSAddr         string // implicit TLS listener, empty disables
+	TLSSource         string // file | acme | self-signed
 	TLSCertFile       string
 	TLSKeyFile        string
+	ACME              ACME
 	AllowInsecureAuth bool
 	MaxMessageBytes   int64
 	MaxRecipients     int
@@ -64,6 +66,21 @@ type Upstream struct {
 	EnvelopeFrom  string // optional fixed MAIL FROM sent upstream
 	HeloName      string
 	Timeout       time.Duration
+}
+
+// ACME configures automatic certificates (TLS_SOURCE=acme).
+type ACME struct {
+	Email       string
+	Domains     []string
+	CAURL       string
+	DNSProvider string // cloudflare | route53
+	KeyType     string // lego key type: EC256, EC384, RSA2048, RSA3072, RSA4096
+	EABKid      string
+	EABHMAC     string
+	Resolvers   []string
+	// Only check the recursive resolvers for the TXT record, not the zone's
+	// authoritative servers (for networks that block outbound DNS to them).
+	SkipAuthoritative bool
 }
 
 func (u Upstream) Addr() string { return fmt.Sprintf("%s:%d", u.Host, u.Port) }
@@ -127,6 +144,7 @@ func Load() (*Config, error) {
 		Hostname:          get("SMTP_HOSTNAME", host),
 		SubmissionAddr:    get("SMTP_SUBMISSION_ADDR", ":2587"),
 		SMTPSAddr:         get("SMTP_SMTPS_ADDR", ":2465"),
+		TLSSource:         strings.ToLower(get("TLS_SOURCE", "")),
 		TLSCertFile:       get("TLS_CERT_FILE", ""),
 		TLSKeyFile:        get("TLS_KEY_FILE", ""),
 		AllowInsecureAuth: boolean("SMTP_ALLOW_INSECURE_AUTH", false),
@@ -183,8 +201,62 @@ func Load() (*Config, error) {
 	default:
 		errs = append(errs, fmt.Errorf("UPSTREAM_TLS must be starttls, tls or none (got %q)", c.Upstream.TLSMode))
 	}
-	if (c.TLSCertFile == "") != (c.TLSKeyFile == "") {
-		errs = append(errs, errors.New("TLS_CERT_FILE and TLS_KEY_FILE must be set together"))
+	if c.TLSSource == "" {
+		c.TLSSource = "self-signed"
+		if c.TLSCertFile != "" {
+			c.TLSSource = "file"
+		}
+	}
+	switch c.TLSSource {
+	case "self-signed":
+	case "file":
+		if c.TLSCertFile == "" || c.TLSKeyFile == "" {
+			errs = append(errs, errors.New("TLS_SOURCE=file needs TLS_CERT_FILE and TLS_KEY_FILE"))
+		}
+	case "acme":
+		c.ACME = ACME{
+			Email:       get("ACME_EMAIL", ""),
+			Domains:     lower(list(get("ACME_DOMAINS", c.Hostname))),
+			DNSProvider: strings.ToLower(get("ACME_DNS_PROVIDER", "")),
+			KeyType:     strings.ToUpper(get("ACME_KEY_TYPE", "EC256")),
+			EABKid:      get("ACME_EAB_KID", ""),
+			EABHMAC:     secret("ACME_EAB_HMAC"),
+			Resolvers:   list(get("ACME_DNS_RESOLVERS", "")),
+
+			SkipAuthoritative: boolean("ACME_DNS_SKIP_AUTHORITATIVE", false),
+		}
+		ca := get("ACME_CA", "letsencrypt")
+		if strings.Contains(ca, "://") {
+			c.ACME.CAURL = ca
+		} else if u, ok := acmeCAs[strings.ToLower(ca)]; ok {
+			c.ACME.CAURL = u
+		} else {
+			errs = append(errs, fmt.Errorf("ACME_CA must be letsencrypt, letsencrypt-staging, zerossl, googletrust or a directory URL (got %q)", ca))
+		}
+		if !boolean("ACME_ACCEPT_TOS", false) {
+			errs = append(errs, errors.New("TLS_SOURCE=acme needs ACME_ACCEPT_TOS=true (you accept the CA's subscriber agreement)"))
+		}
+		if c.ACME.Email == "" {
+			errs = append(errs, errors.New("TLS_SOURCE=acme needs ACME_EMAIL"))
+		}
+		switch c.ACME.DNSProvider {
+		case "cloudflare", "route53":
+		default:
+			errs = append(errs, fmt.Errorf("ACME_DNS_PROVIDER must be cloudflare or route53 (got %q)", c.ACME.DNSProvider))
+		}
+		switch c.ACME.KeyType {
+		case "EC256", "EC384", "RSA2048", "RSA3072", "RSA4096":
+		default:
+			errs = append(errs, fmt.Errorf("ACME_KEY_TYPE must be ec256, ec384, rsa2048, rsa3072 or rsa4096 (got %q)", c.ACME.KeyType))
+		}
+		if (c.ACME.EABKid == "") != (c.ACME.EABHMAC == "") {
+			errs = append(errs, errors.New("ACME_EAB_KID and ACME_EAB_HMAC must be set together"))
+		}
+		if len(c.ACME.Domains) == 0 {
+			errs = append(errs, errors.New("ACME_DOMAINS (or SMTP_HOSTNAME) must name at least one domain"))
+		}
+	default:
+		errs = append(errs, fmt.Errorf("TLS_SOURCE must be self-signed, file or acme (got %q)", c.TLSSource))
 	}
 	if c.SubmissionAddr == "" && c.SMTPSAddr == "" {
 		errs = append(errs, errors.New("at least one of SMTP_SUBMISSION_ADDR or SMTP_SMTPS_ADDR must be set"))
@@ -207,6 +279,14 @@ func Load() (*Config, error) {
 	}
 
 	return c, errors.Join(errs...)
+}
+
+// Well-known ACME directories, so users can write a name instead of a URL.
+var acmeCAs = map[string]string{
+	"letsencrypt":         "https://acme-v02.api.letsencrypt.org/directory",
+	"letsencrypt-staging": "https://acme-staging-v02.api.letsencrypt.org/directory",
+	"zerossl":             "https://acme.zerossl.com/v2/DV90",
+	"googletrust":         "https://dv.acme-v02.api.pki.goog/directory",
 }
 
 func list(s string) []string {
