@@ -172,6 +172,9 @@ func (e *env) login(claims map[string]any) *http.Response {
 		e.t.Fatalf("login did not redirect to IdP: %v %q", err, resp.Header.Get("Location"))
 	}
 	q := loc.Query()
+	if q.Get("client_id") != "panel" || q.Get("redirect_uri") != e.panel.URL+"/auth/callback" || q.Get("response_type") != "code" {
+		e.t.Fatalf("authorize request: client_id=%q redirect_uri=%q response_type=%q", q.Get("client_id"), q.Get("redirect_uri"), q.Get("response_type"))
+	}
 	if q.Get("code_challenge_method") != "S256" || q.Get("nonce") == "" {
 		e.t.Fatalf("missing PKCE/nonce: %v", q)
 	}

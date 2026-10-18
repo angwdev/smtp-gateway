@@ -88,7 +88,7 @@ func (u Upstream) Addr() string { return fmt.Sprintf("%s:%d", u.Host, u.Port) }
 func Load() (*Config, error) {
 	var errs []error
 	get := func(key, def string) string {
-		if v, ok := os.LookupEnv(key); ok && v != "" {
+		if v := clean(os.Getenv(key)); v != "" {
 			return v
 		}
 		return def
@@ -100,9 +100,9 @@ func Load() (*Config, error) {
 				errs = append(errs, fmt.Errorf("%s_FILE: %w", key, err))
 				return ""
 			}
-			return strings.TrimRight(string(b), "\r\n")
+			return clean(string(b))
 		}
-		return os.Getenv(key)
+		return clean(os.Getenv(key))
 	}
 	boolean := func(key string, def bool) bool {
 		v := get(key, "")
@@ -279,6 +279,18 @@ func Load() (*Config, error) {
 	}
 
 	return c, errors.Join(errs...)
+}
+
+// clean strips surrounding whitespace and one pair of matching quotes, which
+// env files and copy-paste often leave behind (`KEY="value"` is passed through
+// literally by `docker run --env-file`). A stray space or quote in a client ID
+// or password otherwise fails in confusing ways far from here.
+func clean(v string) string {
+	v = strings.TrimSpace(v)
+	if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0] {
+		v = strings.TrimSpace(v[1 : len(v)-1])
+	}
+	return v
 }
 
 // Well-known ACME directories, so users can write a name instead of a URL.

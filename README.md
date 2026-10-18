@@ -81,6 +81,20 @@ attestation (`gh attestation verify oci://ghcr.io/angwdev/smtp-gateway:latest -R
    - Post-logout redirect URI (optional): `${PUBLIC_URL}/`
    - Type: confidential (client secret). Scopes: `openid email profile`, plus
      `groups` if you use `OIDC_ALLOWED_GROUPS` and your IdP needs that scope.
+
+   **Authentik:** under *Applications → Providers*, create an *OAuth2/OpenID
+   Provider* (client type *Confidential*, redirect URI as above, *Strict*
+   matching). Then create an *Application* that uses this provider. From the
+   provider's page, copy:
+
+   | `.env` | Authentik field |
+   |---|---|
+   | `OIDC_ISSUER` | *OpenID Configuration Issuer*, e.g. `https://auth.example.com/application/o/smtp-gateway/` |
+   | `OIDC_CLIENT_ID` | *Client ID*: the generated random string, **not** the application slug |
+   | `OIDC_CLIENT_SECRET` | *Client Secret* |
+
+   To limit who can sign in, bind a group or policy to the Application, or use
+   `OIDC_ALLOWED_GROUPS` (Authentik sends `groups` in the token by default).
 2. **Expose the panel** (container port 8080, bound to `127.0.0.1:8080` by default)
    through your reverse proxy at `PUBLIC_URL`. Example for Caddy:
    `smtp-panel.example.com { reverse_proxy 127.0.0.1:8080 }`.
@@ -237,6 +251,22 @@ sign in. A warning is logged at startup in that case.
 5. If anything goes wrong mid-transfer, the upstream connection is dropped before
    the final dot, so a truncated message is never delivered. Network problems
    return `4xx`, so clients retry instead of bouncing.
+
+## Troubleshooting sign-in
+
+At startup the gateway logs the exact values it will send to your identity
+provider:
+
+```
+level=INFO msg="sso: identity provider found; register redirect_uri exactly as logged" issuer=… client_id=… redirect_uri=https://smtp-panel.example.com/auth/callback
+```
+
+| What you see | Cause |
+|---|---|
+| Authentik: *"Client ID Error: The client identifier (client_id) is missing or invalid"* | `OIDC_CLIENT_ID` doesn't match the provider's *Client ID*. Usually the application slug was used instead, or the value has a typo. Copy it from the provider page and restart. |
+| *"Redirect URI Error"* | The provider's redirect URI isn't exactly the logged `redirect_uri`. Check scheme, host and trailing path, and that `PUBLIC_URL` is the URL you open in the browser. |
+| `sso: identity provider not reachable yet` | The gateway can't fetch `${OIDC_ISSUER}.well-known/openid-configuration` (wrong issuer, DNS, or TLS). Sign-in retries on each attempt. |
+| Panel says *"not allowed to use this panel"* | Signed in, but not in `OIDC_ALLOWED_EMAILS` / `OIDC_ALLOWED_GROUPS`. |
 
 ## Operations
 

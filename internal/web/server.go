@@ -111,6 +111,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		_ = srv.Shutdown(sctx)
 	}()
 	slog.Info("panel listening", "addr", s.cfg.WebAddr, "public_url", s.cfg.PublicURL.String())
+	go s.checkSSO(ctx)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
@@ -143,6 +144,21 @@ func (s *Server) protect(h func(http.ResponseWriter, *http.Request, *user)) http
 		}
 		h(w, r, u)
 	}
+}
+
+// checkSSO logs exactly what the panel will send to the identity provider and
+// whether its discovery document is reachable, so a wrong client ID, issuer
+// or redirect URI shows up in the container log at startup.
+func (s *Server) checkSSO(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	log := slog.With("issuer", s.cfg.OIDCIssuer, "client_id", s.cfg.OIDCClientID, "redirect_uri", s.oidc.redirectURL)
+	p, _, err := s.oidc.get(ctx)
+	if err != nil {
+		log.Warn("sso: identity provider not reachable yet (sign-in will retry)", "err", err)
+		return
+	}
+	log.Info("sso: identity provider found; register redirect_uri exactly as logged", "authorize_url", p.Endpoint().AuthURL)
 }
 
 func (s *Server) origin() string { return s.cfg.PublicURL.Scheme + "://" + s.cfg.PublicURL.Host }
