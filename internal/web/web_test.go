@@ -95,6 +95,8 @@ type env struct {
 	panel  *httptest.Server
 	st     *store.Store
 	client *http.Client
+
+	lastBody string // body of the last login callback
 }
 
 func newEnv(t *testing.T, mutate func(*config.Config)) *env {
@@ -182,7 +184,7 @@ func (e *env) login(claims map[string]any) *http.Response {
 	e.idp.claims = claims
 	e.idp.codes["code1"] = codeGrant{nonce: q.Get("nonce"), challenge: q.Get("code_challenge")}
 	e.idp.mu.Unlock()
-	resp, _ = e.get("/auth/callback?code=code1&state=" + url.QueryEscape(q.Get("state")))
+	resp, e.lastBody = e.get("/auth/callback?code=code1&state=" + url.QueryEscape(q.Get("state")))
 	return resp
 }
 
@@ -316,12 +318,32 @@ func TestDisallowedUsers(t *testing.T) {
 	e := newEnv(t, nil)
 	if resp := e.login(map[string]any{"email": "eve@example.com", "email_verified": true}); resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("other email = %d, want 403", resp.StatusCode)
+	} else if !strings.Contains(e.lastBody, "signed in as eve@example.com") {
+		t.Fatalf("reason does not name the account: %s", e.lastBody)
 	}
+	// authentik >= 2025.10 sends email_verified=false by default: refuse, and
+	// say why instead of a generic "not allowed".
 	if resp := e.login(map[string]any{"email": "admin@example.com", "email_verified": false}); resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("unverified email = %d, want 403", resp.StatusCode)
+	} else if !strings.Contains(e.lastBody, "email_verified=false") || !strings.Contains(e.lastBody, "OIDC_ALLOW_UNVERIFIED_EMAIL") {
+		t.Fatalf("reason does not explain the unverified e-mail: %s", e.lastBody)
+	}
+	if resp := e.login(map[string]any{"sub": "u1"}); resp.StatusCode != http.StatusForbidden || !strings.Contains(e.lastBody, "no e-mail address") {
+		t.Fatalf("missing email: %d %s", resp.StatusCode, e.lastBody)
 	}
 	if resp, _ := e.get("/"); resp.StatusCode != http.StatusFound {
 		t.Fatal("rejected user got a session")
+	}
+}
+
+func TestAllowUnverifiedEmailOptIn(t *testing.T) {
+	e := newEnv(t, func(c *config.Config) { c.OIDCAllowUnverifiedEmail = true })
+	if resp := e.login(map[string]any{"email": "admin@example.com", "email_verified": false}); resp.StatusCode != http.StatusFound {
+		t.Fatalf("opt-in: unverified listed email = %d, want 302", resp.StatusCode)
+	}
+	e.client.Jar, _ = cookiejar.New(nil)
+	if resp := e.login(map[string]any{"email": "eve@example.com", "email_verified": false}); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("opt-in must still refuse unlisted e-mails: %d", resp.StatusCode)
 	}
 }
 

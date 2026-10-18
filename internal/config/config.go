@@ -50,7 +50,9 @@ type Config struct {
 	OIDCScopes        []string
 	OIDCAllowedEmails []string
 	OIDCAllowedGroups []string
-	OIDCGroupsClaim   string
+	// Accept listed e-mails even when the IdP sends email_verified=false.
+	OIDCAllowUnverifiedEmail bool
+	OIDCGroupsClaim          string
 
 	LogRetention time.Duration
 	LogLevel     string
@@ -178,7 +180,9 @@ func Load() (*Config, error) {
 		OIDCScopes:        list(get("OIDC_SCOPES", "openid,email,profile")),
 		OIDCAllowedEmails: lower(list(get("OIDC_ALLOWED_EMAILS", ""))),
 		OIDCAllowedGroups: list(get("OIDC_ALLOWED_GROUPS", "")),
-		OIDCGroupsClaim:   get("OIDC_GROUPS_CLAIM", "groups"),
+
+		OIDCAllowUnverifiedEmail: boolean("OIDC_ALLOW_UNVERIFIED_EMAIL", false),
+		OIDCGroupsClaim:          get("OIDC_GROUPS_CLAIM", "groups"),
 
 		LogRetention: time.Duration(integer("LOG_RETENTION_DAYS", 30)) * 24 * time.Hour,
 		LogLevel:     get("LOG_LEVEL", "info"),

@@ -93,8 +93,14 @@ attestation (`gh attestation verify oci://ghcr.io/angwdev/smtp-gateway:latest -R
    | `OIDC_CLIENT_ID` | *Client ID*: the generated random string, **not** the application slug |
    | `OIDC_CLIENT_SECRET` | *Client Secret* |
 
-   To limit who can sign in, bind a group or policy to the Application, or use
-   `OIDC_ALLOWED_GROUPS` (Authentik sends `groups` in the token by default).
+   To choose who can sign in, prefer **`OIDC_ALLOWED_GROUPS`**, for example
+   `smtp-admins` (Authentik sends a `groups` claim by default), or bind a group or
+   policy to the Application. `OIDC_ALLOWED_EMAILS` only matches addresses the IdP
+   marks as verified, and since Authentik 2025.10 the default mapping sends
+   `email_verified: false`. To use e-mails there, either add a
+   [verified-email mapping](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/verify-email-address/)
+   to the provider, or set `OIDC_ALLOW_UNVERIFIED_EMAIL=true`. Only do the latter
+   if users can't change their own e-mail address in Authentik.
 2. **Expose the panel** (container port 8080, bound to `127.0.0.1:8080` by default)
    through your reverse proxy at `PUBLIC_URL`. Example for Caddy:
    `smtp-panel.example.com { reverse_proxy 127.0.0.1:8080 }`.
@@ -225,6 +231,7 @@ Variables that hold secrets (`UPSTREAM_PASSWORD`, `OIDC_CLIENT_SECRET`,
 | `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | *(required with panel)* | |
 | `OIDC_SCOPES` | `openid,email,profile` | |
 | `OIDC_ALLOWED_EMAILS` | | Comma-separated; `@domain` entries allowed; needs a verified e-mail |
+| `OIDC_ALLOW_UNVERIFIED_EMAIL` | `false` | Also accept listed e-mails sent with `email_verified: false`; only safe if users can't edit their e-mail |
 | `OIDC_ALLOWED_GROUPS` | | Matched against `OIDC_GROUPS_CLAIM` (default `groups`) |
 | `SESSION_TTL` | `8h` | |
 | `SESSION_SECRET` | auto | Generated and stored in the database if unset |
@@ -266,7 +273,8 @@ level=INFO msg="sso: identity provider found; register redirect_uri exactly as l
 | Authentik: *"Client ID Error: The client identifier (client_id) is missing or invalid"* | `OIDC_CLIENT_ID` doesn't match the provider's *Client ID*. Usually the application slug was used instead, or the value has a typo. Copy it from the provider page and restart. |
 | *"Redirect URI Error"* | The provider's redirect URI isn't exactly the logged `redirect_uri`. Check scheme, host and trailing path, and that `PUBLIC_URL` is the URL you open in the browser. |
 | `sso: identity provider not reachable yet` | The gateway can't fetch `${OIDC_ISSUER}.well-known/openid-configuration` (wrong issuer, DNS, or TLS). Sign-in retries on each attempt. |
-| Panel says *"not allowed to use this panel"* | Signed in, but not in `OIDC_ALLOWED_EMAILS` / `OIDC_ALLOWED_GROUPS`. |
+| *"… is in OIDC_ALLOWED_EMAILS, but your identity provider reports it as unverified"* | Authentik 2025.10+ sends `email_verified: false` by default. Use `OIDC_ALLOWED_GROUPS`, add a verified-email mapping in Authentik, or set `OIDC_ALLOW_UNVERIFIED_EMAIL=true`. |
+| *"signed in as …, which is not in the allowed e-mails or groups"* | The account isn't listed. The container log (`sso: sign-in refused`) shows the e-mail, `email_verified` and groups the IdP sent. |
 
 ## Operations
 

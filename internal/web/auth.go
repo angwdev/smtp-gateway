@@ -234,7 +234,7 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 
 	u, reason := s.authorize(claims)
 	if u == nil {
-		fail(http.StatusForbidden, "Your account is not allowed to use this panel ("+reason+").", nil)
+		fail(http.StatusForbidden, "Your account is not allowed to use this panel: "+reason+".", nil)
 		return
 	}
 	u.Exp = time.Now().Add(s.cfg.SessionTTL).Unix()
@@ -251,10 +251,14 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 
 // authorize applies OIDC_ALLOWED_EMAILS / OIDC_ALLOWED_GROUPS. A user passes
 // if they match either list; with both lists empty, every user the identity
-// provider lets through is accepted.
+// provider lets through is accepted. An e-mail only counts when the provider
+// marks it verified (unless OIDC_ALLOW_UNVERIFIED_EMAIL is set), otherwise
+// anyone able to edit their own profile address could claim a listed one.
+// The returned reason says exactly why a user was refused.
 func (s *Server) authorize(claims map[string]any) (*user, string) {
 	str := func(k string) string { v, _ := claims[k].(string); return v }
-	u := &user{Email: strings.ToLower(str("email")), Name: str("name")}
+	email := strings.ToLower(str("email"))
+	u := &user{Email: email, Name: str("name")}
 	if u.Email == "" {
 		u.Email = str("preferred_username")
 	}
@@ -269,18 +273,24 @@ func (s *Server) authorize(claims map[string]any) (*user, string) {
 		return u, ""
 	}
 
-	verified := true
-	if v, ok := claims["email_verified"].(bool); ok {
-		verified = v
+	verified, hasVerified := claims["email_verified"].(bool)
+	if !hasVerified {
+		verified = true // provider doesn't say; trust it as before
 	}
-	if verified && str("email") != "" {
-		at := strings.LastIndexByte(u.Email, '@')
+	listed := false
+	if email != "" {
+		at := strings.LastIndexByte(email, '@')
 		for _, e := range emails {
-			if e == u.Email || (strings.HasPrefix(e, "@") && at >= 0 && e == u.Email[at:]) {
-				return u, ""
+			if e == email || (strings.HasPrefix(e, "@") && at >= 0 && e == email[at:]) {
+				listed = true
+				break
 			}
 		}
 	}
+	if listed && (verified || s.cfg.OIDCAllowUnverifiedEmail) {
+		return u, ""
+	}
+
 	var userGroups []string
 	switch g := claims[s.cfg.OIDCGroupsClaim].(type) {
 	case []any:
@@ -297,7 +307,19 @@ func (s *Server) authorize(claims map[string]any) (*user, string) {
 			return u, ""
 		}
 	}
-	return nil, "not in the allowed users or groups"
+
+	slog.Warn("sso: sign-in refused", "email", email, "email_verified", claims["email_verified"],
+		"groups_claim", s.cfg.OIDCGroupsClaim, "groups", userGroups)
+	switch {
+	case listed:
+		return nil, email + " is in OIDC_ALLOWED_EMAILS, but your identity provider reports it as unverified (email_verified=false). " +
+			"Allow a group with OIDC_ALLOWED_GROUPS, have the provider send verified addresses, or set OIDC_ALLOW_UNVERIFIED_EMAIL=true if users cannot change their own e-mail"
+	case email == "" && len(emails) > 0:
+		return nil, "your identity provider sent no e-mail address; check that the email scope is enabled for this client"
+	case len(groups) > 0 && len(userGroups) == 0:
+		return nil, "signed in as " + u.Email + ", which is not an allowed e-mail, and the token has no \"" + s.cfg.OIDCGroupsClaim + "\" claim to match OIDC_ALLOWED_GROUPS"
+	}
+	return nil, "signed in as " + u.Email + ", which is not in the allowed e-mails or groups"
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
