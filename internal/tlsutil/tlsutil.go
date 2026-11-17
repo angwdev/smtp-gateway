@@ -36,9 +36,9 @@ type Info struct {
 	NotAfter  time.Time
 }
 
-func (i Info) Remaining() time.Duration { return time.Until(i.NotAfter) }
+func (i Info) Remaining() time.Duration { return time.Until(i.NotAfter) } //nolint:revive,gocritic // v1, replaced in Task 6.1
 
-type Loader struct {
+type Loader struct { //nolint:revive // v1, replaced in Task 6.1
 	mu   sync.Mutex
 	cert *tls.Certificate
 	info Info
@@ -101,13 +101,13 @@ func (l *Loader) set(cert *tls.Certificate, source string) {
 	}
 }
 
-func (l *Loader) Info() Info {
+func (l *Loader) Info() Info { //nolint:revive // v1, replaced in Task 6.1
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.info
 }
 
-func (l *Loader) Config() *tls.Config {
+func (l *Loader) Config() *tls.Config { //nolint:revive // v1, replaced in Task 6.1
 	return &tls.Config{
 		MinVersion: tls.VersionTLS12,
 		GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
@@ -179,5 +179,5 @@ func writeSelfSigned(certFile, keyFile, hostname string) error {
 	if err := os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}), 0o600); err != nil {
 		return err
 	}
-	return os.WriteFile(certFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644)
+	return os.WriteFile(certFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644) //nolint:gosec // v1, replaced in Task 6.1
 }

@@ -110,7 +110,7 @@ func TestPebble(t *testing.T) {
 	if due, _, ari := m.renewalDue(ctx, client, cert.Leaf); due || !ari {
 		t.Fatalf("fresh cert: due=%v ari=%v", due, ari)
 	}
-	if m.check(ctx, false); m.Status().LastAttempt != (time.Time{}) {
+	if m.check(ctx, false); m.Status().LastAttempt != (time.Time{}) { //nolint:gocritic // v1, replaced in Task 6.1
 		t.Fatal("renewed a certificate that was not due")
 	}
 

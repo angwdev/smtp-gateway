@@ -14,6 +14,7 @@ import (
 	"time"
 )
 
+// Config holds the gateway's runtime settings, loaded from the environment.
 type Config struct {
 	DataDir string
 
@@ -58,6 +59,7 @@ type Config struct {
 	LogLevel     string
 }
 
+// Upstream describes the single mail server the gateway relays through.
 type Upstream struct {
 	Host          string
 	Port          int
@@ -85,8 +87,10 @@ type ACME struct {
 	SkipAuthoritative bool
 }
 
-func (u Upstream) Addr() string { return fmt.Sprintf("%s:%d", u.Host, u.Port) }
+// Addr returns the upstream host and port as a dial address.
+func (u Upstream) Addr() string { return fmt.Sprintf("%s:%d", u.Host, u.Port) } //nolint:gocritic // small value type, not worth a pointer receiver
 
+// Load reads the gateway configuration from the environment.
 func Load() (*Config, error) {
 	var errs []error
 	get := func(key, def string) string {
@@ -97,7 +101,7 @@ func Load() (*Config, error) {
 	}
 	secret := func(key string) string {
 		if p := os.Getenv(key + "_FILE"); p != "" {
-			b, err := os.ReadFile(p)
+			b, err := os.ReadFile(p) //nolint:gosec // operator-controlled *_FILE env var, not user input
 			if err != nil {
 				errs = append(errs, fmt.Errorf("%s_FILE: %w", key, err))
 				return ""

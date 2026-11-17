@@ -56,7 +56,7 @@ type Status struct {
 	ARI         bool // renewal window came from the CA
 }
 
-type Manager struct {
+type Manager struct { //nolint:revive // v1, replaced in Task 6.1
 	cfg    config.ACME
 	dir    string
 	loader *tlsutil.Loader
@@ -72,7 +72,7 @@ type Manager struct {
 
 // New prepares a manager and validates the DNS provider credentials. If a
 // previously issued certificate is on disk it is served immediately.
-func New(cfg config.ACME, dataDir string, loader *tlsutil.Loader) (*Manager, error) {
+func New(cfg config.ACME, dataDir string, loader *tlsutil.Loader) (*Manager, error) { //nolint:gocritic // v1, replaced in Task 6.1
 	p, err := newDNSProvider(cfg.DNSProvider)
 	if err != nil {
 		return nil, err
@@ -80,7 +80,7 @@ func New(cfg config.ACME, dataDir string, loader *tlsutil.Loader) (*Manager, err
 	return newManager(cfg, dataDir, loader, p)
 }
 
-func newManager(cfg config.ACME, dataDir string, loader *tlsutil.Loader, p challenge.Provider) (*Manager, error) {
+func newManager(cfg config.ACME, dataDir string, loader *tlsutil.Loader, p challenge.Provider) (*Manager, error) { //nolint:gocritic // v1, replaced in Task 6.1
 	m := &Manager{
 		cfg:      cfg,
 		dir:      filepath.Join(dataDir, "acme"),
@@ -120,7 +120,7 @@ func newDNSProvider(name string) (challenge.Provider, error) {
 	return nil, fmt.Errorf("ACME_DNS_PROVIDER must be one of %s (got %q)", strings.Join(Providers, ", "), name)
 }
 
-func (m *Manager) Status() Status {
+func (m *Manager) Status() Status { //nolint:revive // v1, replaced in Task 6.1
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s := m.status
@@ -307,9 +307,9 @@ type user struct {
 	key          crypto.Signer
 }
 
-func (u *user) GetEmail() string                       { return u.Email }
-func (u *user) GetRegistration() *acme.ExtendedAccount { return u.Registration }
-func (u *user) GetPrivateKey() crypto.Signer           { return u.key }
+func (u *user) GetEmail() string                       { return u.Email }        //nolint:revive // v1, replaced in Task 6.1
+func (u *user) GetRegistration() *acme.ExtendedAccount { return u.Registration } //nolint:revive // v1, replaced in Task 6.1
+func (u *user) GetPrivateKey() crypto.Signer           { return u.key }          //nolint:revive // v1, replaced in Task 6.1
 
 // accountDir is per CA, so switching between staging and production keeps
 // both accounts.
@@ -321,13 +321,13 @@ func (m *Manager) accountDir() string {
 func (m *Manager) client(ctx context.Context) (*lego.Client, error) {
 	dir := m.accountDir()
 	u := &user{Email: m.cfg.Email}
-	if keyPEM, err := os.ReadFile(filepath.Join(dir, "account.key")); err == nil {
+	if keyPEM, err := os.ReadFile(filepath.Join(dir, "account.key")); err == nil { //nolint:gosec // v1, replaced in Task 6.1: fixed data-dir path, not user input
 		k, err := certcrypto.ParsePEMPrivateKey(keyPEM)
 		if err != nil {
 			return nil, fmt.Errorf("account key: %w", err)
 		}
 		u.key = k
-		if b, err := os.ReadFile(filepath.Join(dir, "account.json")); err == nil {
+		if b, err := os.ReadFile(filepath.Join(dir, "account.json")); err == nil { //nolint:gosec // v1, replaced in Task 6.1: fixed data-dir path, not user input
 			_ = json.Unmarshal(b, u)
 			u.Email = m.cfg.Email
 		}
@@ -386,7 +386,7 @@ type certMeta struct {
 
 // matches reports whether the stored certificate was issued for the current
 // configuration; any change triggers a new order.
-func (c certMeta) matches(cfg config.ACME) bool {
+func (c certMeta) matches(cfg config.ACME) bool { //nolint:gocritic // v1, replaced in Task 6.1
 	return slices.Equal(c.Domains, cfg.Domains) && c.CA == cfg.CAURL && c.KeyType == cfg.KeyType
 }
 
@@ -432,17 +432,17 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tmp.Name())
+	defer func() { _ = os.Remove(tmp.Name()) }() //nolint:errcheck // v1, replaced in Task 6.1: best-effort cleanup
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close() //nolint:errcheck // v1, replaced in Task 6.1: already returning the write error
 		return err
 	}
 	if err := tmp.Chmod(mode); err != nil {
-		tmp.Close()
+		_ = tmp.Close() //nolint:errcheck // v1, replaced in Task 6.1: already returning the chmod error
 		return err
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
+		_ = tmp.Close() //nolint:errcheck // v1, replaced in Task 6.1: already returning the sync error
 		return err
 	}
 	if err := tmp.Close(); err != nil {

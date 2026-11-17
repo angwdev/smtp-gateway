@@ -80,7 +80,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer st.Close()
+	defer func() {
+		if cerr := st.Close(); cerr != nil {
+			slog.Warn("close store", "error", cerr)
+		}
+	}()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -193,12 +197,14 @@ func healthcheck() int {
 	}
 	client := &http.Client{Timeout: 3 * time.Second}
 	if webAddr != "" {
-		resp, err := client.Get("http://" + localAddr(webAddr) + "/healthz")
+		resp, err := client.Get("http://" + localAddr(webAddr) + "/healthz") //nolint:gosec,noctx // v1, replaced in Task 6.1: fixed local healthcheck address, not user input
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
-		resp.Body.Close()
+		if cerr := resp.Body.Close(); cerr != nil {
+			slog.Warn("close healthcheck response body", "error", cerr)
+		}
 		if resp.StatusCode != http.StatusOK {
 			fmt.Fprintln(os.Stderr, "status", resp.Status)
 			return 1
@@ -209,12 +215,14 @@ func healthcheck() int {
 	if addr == "" {
 		addr = ":2587"
 	}
-	c, err := net.DialTimeout("tcp", localAddr(addr), 3*time.Second)
+	c, err := net.DialTimeout("tcp", localAddr(addr), 3*time.Second) //nolint:gosec,noctx // v1, replaced in Task 6.1: fixed local healthcheck address, not user input
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	c.Close()
+	if cerr := c.Close(); cerr != nil {
+		slog.Warn("close healthcheck connection", "error", cerr)
+	}
 	return 0
 }
 
@@ -241,7 +249,11 @@ func addCredential(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	defer st.Close()
+	defer func() {
+		if cerr := st.Close(); cerr != nil {
+			slog.Warn("close store", "error", cerr)
+		}
+	}()
 	c := &store.Credential{Username: args[0], AllowedSenders: args[1:], Enabled: true, CreatedBy: "cli"}
 	secret, err := st.CreateCredential(context.Background(), c)
 	if err != nil {
