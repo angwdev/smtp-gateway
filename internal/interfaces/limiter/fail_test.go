@@ -41,3 +41,21 @@ func TestFailLimiter(t *testing.T) {
 		t.Fatal("limit 0: Blocked = true after Fail")
 	}
 }
+
+func TestFailLimiterWindowExpiry(t *testing.T) {
+	short := NewFailLimiter(2, 20*time.Millisecond)
+	short.Fail("9.9.9.9")
+	time.Sleep(50 * time.Millisecond)
+	if short.Blocked("9.9.9.9") {
+		t.Fatal("Blocked must clear a stale entry once its window has passed")
+	}
+
+	// Fail's own opportunistic cleanup sweeps any entry older than the
+	// window the next time the window has elapsed since the last sweep.
+	short.Fail("1.1.1.1")
+	time.Sleep(50 * time.Millisecond)
+	short.Fail("2.2.2.2")
+	if short.Blocked("1.1.1.1") {
+		t.Fatal("the stale 1.1.1.1 entry should have been swept by Fail")
+	}
+}

@@ -38,7 +38,32 @@ func TestSettingsRepository(t *testing.T) {
 	})
 }
 
+func TestGetOrCreateReadFailure(t *testing.T) {
+	db := newTestDB(t)
+	require.NoError(t, db.Close())
+	repo := NewSettingsRepository(db)
+	_, err := repo.GetOrCreate(context.Background(), "k", func() (string, error) { return "v", nil })
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, context.Canceled, "a closed pool, not a cancelled read, must be the cause")
+}
+
+func TestGetOrCreateStoreFailure(t *testing.T) {
+	// The read succeeds (the key is missing, so GetOrCreate calls gen), but
+	// the write pool alone is closed, so only the store fails.
+	db := newTestDB(t)
+	require.NoError(t, db.write.Close())
+	repo := NewSettingsRepository(db)
+	_, err := repo.GetOrCreate(context.Background(), "new_key", func() (string, error) { return "v", nil })
+	require.Error(t, err)
+}
+
 func TestCheckpoint(t *testing.T) {
 	db := newTestDB(t)
 	require.NoError(t, db.Checkpoint(context.Background()))
+}
+
+func TestCheckpointFailsOnAClosedWriter(t *testing.T) {
+	db := newTestDB(t)
+	require.NoError(t, db.write.Close())
+	assert.Error(t, db.Checkpoint(context.Background()))
 }

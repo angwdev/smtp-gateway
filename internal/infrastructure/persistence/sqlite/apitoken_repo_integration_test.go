@@ -67,4 +67,46 @@ func TestAPITokenRepository(t *testing.T) {
 		assert.ErrorIs(t, repo.Revoke(ctx, tok.ID, t0), shared.ErrNotFound)
 		assert.ErrorIs(t, repo.Revoke(ctx, 9999, t0), shared.ErrNotFound)
 	})
+
+	t.Run("touch a missing token is not found", func(t *testing.T) {
+		assert.ErrorIs(t, repo.Touch(ctx, 9999, "203.0.113.9", t0), shared.ErrNotFound)
+	})
+
+	t.Run("an expiry date round-trips", func(t *testing.T) {
+		future := t0.Add(time.Hour)
+		withExpiry, _, err := apitoken.New("expiring", apitoken.ScopeRead, &future, "", t0)
+		require.NoError(t, err)
+		require.NoError(t, repo.Create(ctx, withExpiry))
+		got, err := repo.FindByHash(ctx, withExpiry.Hash)
+		require.NoError(t, err)
+		require.NotNil(t, got.ExpiresAt)
+		assert.Equal(t, future.Unix(), got.ExpiresAt.Unix())
+	})
+}
+
+func TestAPITokenRepositoryDatabaseFailures(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	repo := NewAPITokenRepository(db)
+	tok, _ := mustToken(t, repo, "closed")
+	require.NoError(t, db.Close())
+
+	_, err := repo.List(ctx)
+	assert.Error(t, err)
+
+	_, err = repo.FindByHash(ctx, tok.Hash)
+	assert.Error(t, err)
+	assert.NotErrorIs(t, err, shared.ErrNotFound)
+
+	other, _, err := apitoken.New("another", apitoken.ScopeRead, nil, "", t0)
+	require.NoError(t, err)
+	assert.Error(t, repo.Create(ctx, other))
+
+	err = repo.Revoke(ctx, tok.ID, t0)
+	assert.Error(t, err)
+	assert.NotErrorIs(t, err, shared.ErrNotFound)
+
+	err = repo.Touch(ctx, tok.ID, "203.0.113.9", t0)
+	assert.Error(t, err)
+	assert.NotErrorIs(t, err, shared.ErrNotFound)
 }

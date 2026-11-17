@@ -87,6 +87,10 @@ func TestMessageRepository(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, window, 1)
 		assert.Equal(t, failed.ID, window[0].ID)
+
+		byCredential, err := repo.List(ctx, message.Filter{CredentialID: c.ID})
+		require.NoError(t, err)
+		assert.Len(t, byCredential, 3)
 	})
 
 	t.Run("counts and series", func(t *testing.T) {
@@ -117,4 +121,40 @@ func TestMessageRepository(t *testing.T) {
 		require.NoError(t, db.Read.Raw("SELECT COUNT(*) FROM message_headers").Scan(&headers).Error)
 		assert.EqualValues(t, 1, headers, "only the header of the surviving message is left")
 	})
+}
+
+func TestMessageRepositoryDatabaseFailures(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	creds := NewCredentialRepository(db)
+	repo := NewMessageRepository(db)
+	c, _ := mustCredential(t, creds, "closed")
+	m := &message.Message{CreatedAt: t0, CredentialID: &c.ID, Username: c.Username,
+		MailFrom: "a@example.com", RcptTo: []string{"b@example.com"}, Status: message.StatusSent}
+	require.NoError(t, repo.Record(ctx, m, nil))
+	require.NoError(t, db.Close())
+
+	assert.Error(t, repo.Record(ctx, &message.Message{CreatedAt: t0, Status: message.StatusSent}, nil))
+
+	_, err := repo.FindByID(ctx, m.ID)
+	assert.Error(t, err)
+	assert.NotErrorIs(t, err, shared.ErrNotFound)
+
+	_, err = repo.Headers(ctx, m.ID)
+	assert.Error(t, err)
+
+	_, err = repo.List(ctx, message.Filter{})
+	assert.Error(t, err)
+
+	_, err = repo.CountSince(ctx, c.ID, t0)
+	assert.Error(t, err)
+
+	_, err = repo.StatusCounts(ctx, t0)
+	assert.Error(t, err)
+
+	_, err = repo.HourlySeries(ctx, t0)
+	assert.Error(t, err)
+
+	_, err = repo.Prune(ctx, t0.Add(time.Hour), 10)
+	assert.Error(t, err)
 }

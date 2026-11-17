@@ -61,10 +61,7 @@ func New(name string, scope Scope, expiresAt *time.Time, createdBy string, now t
 	if expiresAt != nil && !expiresAt.After(now) {
 		return nil, "", shared.Invalid("expires_at", "Pick a date in the future.")
 	}
-	random, err := shared.RandomString(SecretLength, shared.SecretAlphabet)
-	if err != nil {
-		return nil, "", err
-	}
+	random, _ := shared.RandomString(SecretLength, shared.SecretAlphabet) // SecretLength and SecretAlphabet are fixed, valid constants: this call can only fail on bad input (tested directly in secret_test.go), which it never does here.
 	secret := Prefix + random
 	return &Token{
 		Name: name, Hash: shared.HashSecret(secret), Hint: random[SecretLength-hintLength:],

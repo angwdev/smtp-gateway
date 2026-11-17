@@ -36,8 +36,30 @@ func TestSPA(t *testing.T) {
 		"assets/app-abc123.js":    {Data: []byte("console.log(1)")},
 		"assets/app-abc123.js.gz": {Data: []byte("gzipped")},
 		"favicon.svg":             {Data: []byte("<svg/>")},
+		"LICENSE":                 {Data: []byte("MIT")},
 	}
 	r := spaEngine(files)
+
+	t.Run("a root-level static file is cached for an hour, not immutably", func(t *testing.T) {
+		w := get(r, "/favicon.svg", nil)
+		assert.Equal(t, 200, w.Code)
+		assert.Equal(t, "public, max-age=3600", w.Header().Get("Cache-Control"))
+		assert.Equal(t, "<svg/>", w.Body.String())
+	})
+
+	t.Run("a file with no recognized extension still gets a content type", func(t *testing.T) {
+		w := get(r, "/LICENSE", nil)
+		assert.Equal(t, 200, w.Code)
+		assert.Equal(t, "application/octet-stream", w.Header().Get("Content-Type"))
+		assert.Equal(t, "MIT", w.Body.String())
+	})
+
+	t.Run("a non-GET/HEAD request to a client route is method not allowed", func(t *testing.T) {
+		req := httptest.NewRequest(nethttp.MethodPut, "/logs", nethttp.NoBody)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, 405, w.Code)
+	})
 
 	t.Run("client routes get index.html with the response nonce, never cached", func(t *testing.T) {
 		for _, path := range []string{"/", "/messages", "/logins/3", "/signed-out"} {

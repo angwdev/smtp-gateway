@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -121,6 +122,16 @@ func TestAuditCalls(t *testing.T) {
 		assert.Equal(t, http.StatusForbidden, w.Code)
 		if assert.Len(t, auditor.entries, 1) {
 			assert.Equal(t, audit.ResultDenied, auditor.entries[0].Result)
+		}
+	})
+
+	t.Run("a handler that fails with an unexpected error records an errored call", func(t *testing.T) {
+		auditor := &fakeAuditor{}
+		r := auditCallsRouter(auditor, tokenPrincipal, func(c *gin.Context) { Fail(c, errors.New("disk on fire")) })
+		w := do(r, http.MethodGet, "/x", nil)
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
+		if assert.Len(t, auditor.entries, 1) {
+			assert.Equal(t, audit.ResultError, auditor.entries[0].Result)
 		}
 	})
 

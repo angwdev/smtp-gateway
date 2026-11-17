@@ -129,10 +129,7 @@ func (h *Handler) Rotate(ctx context.Context, id int64) (*domain.Credential, str
 	if err != nil {
 		return nil, "", fmt.Errorf("rotate credential: %w", err)
 	}
-	secret, err := c.Rotate(h.now())
-	if err != nil {
-		return nil, "", fmt.Errorf("rotate credential: %w", err)
-	}
+	secret, _ := c.Rotate(h.now()) // Rotate never fails; see its comment.
 	if err := h.repo.SetSecretHash(ctx, c.ID, c.SecretHash, c.UpdatedAt); err != nil {
 		return nil, "", fmt.Errorf("rotate credential: %w", err)
 	}

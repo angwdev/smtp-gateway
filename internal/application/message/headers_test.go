@@ -74,3 +74,8 @@ func TestParseFieldsStopsAtBlankLine(t *testing.T) {
 func TestParseFieldsEmpty(t *testing.T) {
 	assert.Empty(t, parseFields(""))
 }
+
+func TestParseFieldsSkipsLinesWithoutColon(t *testing.T) {
+	fields := parseFields("garbage with no colon\r\nFrom: a@b.c")
+	assert.Equal(t, []HeaderField{{Name: "From", Value: "a@b.c"}}, fields)
+}

@@ -94,3 +94,33 @@ func TestCredentialRepository(t *testing.T) {
 		assert.ErrorIs(t, err, shared.ErrNotFound)
 	})
 }
+
+func TestCredentialRepositoryDatabaseFailures(t *testing.T) {
+	// A closed pool makes every call fail with a real database error
+	// (not the not-found / conflict errors the happy-path tests already
+	// cover), exercising each method's generic error-wrap branch.
+	ctx := context.Background()
+	db := newTestDB(t)
+	repo := NewCredentialRepository(db)
+	c, _, err := credential.New("closed", "", nil, 0, true, "test", t0)
+	require.NoError(t, err)
+	require.NoError(t, repo.Create(ctx, c))
+	require.NoError(t, db.Close())
+
+	_, err = repo.FindByID(ctx, c.ID)
+	assert.Error(t, err)
+	assert.NotErrorIs(t, err, shared.ErrNotFound)
+
+	_, err = repo.List(ctx)
+	assert.Error(t, err)
+
+	other, _, err := credential.New("another", "", nil, 0, true, "test", t0)
+	require.NoError(t, err)
+	assert.Error(t, repo.Create(ctx, other))
+
+	err = repo.Touch(ctx, c.ID, "203.0.113.9", t0)
+	assert.Error(t, err)
+	assert.NotErrorIs(t, err, shared.ErrNotFound)
+
+	assert.Error(t, repo.Delete(ctx, c.ID))
+}

@@ -4,6 +4,7 @@ package sqlite
 
 import (
 	"context"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -142,4 +143,68 @@ func TestAuditRepository(t *testing.T) {
 		require.Len(t, got, 1)
 		assert.Equal(t, recent.ID, got[0].ID)
 	})
+
+	t.Run("filter by target type, from and to", func(t *testing.T) {
+		e := &audit.Event{CreatedAt: t0, Action: "credential.update", TargetType: "credential"}
+		require.NoError(t, repo.Append(ctx, e))
+
+		byTarget, err := repo.List(ctx, audit.Filter{TargetType: "credential", BeforeID: e.ID + 1, Limit: 1})
+		require.NoError(t, err)
+		require.Len(t, byTarget, 1)
+		assert.Equal(t, e.ID, byTarget[0].ID)
+
+		byFrom, err := repo.List(ctx, audit.Filter{From: t0, BeforeID: e.ID + 1, Limit: 1})
+		require.NoError(t, err)
+		require.Len(t, byFrom, 1)
+		assert.Equal(t, e.ID, byFrom[0].ID)
+
+		byTo, err := repo.List(ctx, audit.Filter{To: t0, BeforeID: e.ID + 1, Limit: 1})
+		require.NoError(t, err)
+		require.Len(t, byTo, 1)
+		assert.Equal(t, e.ID, byTo[0].ID)
+
+		missed, err := repo.List(ctx, audit.Filter{To: t0.Add(-time.Hour), BeforeID: e.ID + 1, Limit: 1})
+		require.NoError(t, err)
+		assert.Empty(t, missed)
+	})
+}
+
+func TestAppendRejectsChangesThatDoNotMarshal(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewAuditRepository(db)
+	e := &audit.Event{CreatedAt: t0, Action: "credential.update",
+		Changes: map[string]audit.Change{"rate_per_hour": {From: math.NaN(), To: 5}}}
+	err := repo.Append(context.Background(), e)
+	require.Error(t, err)
+	assert.Zero(t, e.ID, "a failed append must not fill in an id")
+}
+
+func TestListFailsOnACorruptChangesColumn(t *testing.T) {
+	// Append always writes valid JSON; a hand-crafted row simulates data
+	// corrupted some other way, exercising toDomain's decode error path.
+	db := newTestDB(t)
+	repo := NewAuditRepository(db)
+	require.NoError(t, db.Write.Exec(
+		`INSERT INTO audit_events (created_at, actor, actor_type, action, target_type, target_label,
+			result, ip, user_agent, request_id, detail, changes) VALUES
+			(?, '', 'system', 'credential.update', '', '', 'ok', '', '', '', '', 'not json')`, t0.Unix()).Error)
+
+	_, err := repo.List(context.Background(), audit.Filter{})
+	require.Error(t, err)
+}
+
+func TestAuditRepositoryDatabaseFailures(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	repo := NewAuditRepository(db)
+	require.NoError(t, db.Close())
+
+	err := repo.Append(ctx, &audit.Event{CreatedAt: t0, Action: "credential.update"})
+	assert.Error(t, err)
+
+	_, err = repo.List(ctx, audit.Filter{})
+	assert.Error(t, err)
+
+	_, err = repo.Prune(ctx, t0)
+	assert.Error(t, err)
 }

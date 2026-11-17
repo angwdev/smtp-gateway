@@ -17,3 +17,12 @@ func TestInvalidIsAValidationError(t *testing.T) {
 	assert.Equal(t, "Use 1-64 letters, digits or . _ - + @", ve.Message)
 	assert.Contains(t, err.Error(), "username")
 }
+
+func TestRateLimitedError(t *testing.T) {
+	err := RateLimited(42)
+	var re *RateLimitedError
+	require.ErrorAs(t, err, &re)
+	assert.Equal(t, 42, re.RetrySeconds)
+	assert.Equal(t, "rate limited", re.Error())
+	assert.ErrorIs(t, err, ErrRateLimited)
+}

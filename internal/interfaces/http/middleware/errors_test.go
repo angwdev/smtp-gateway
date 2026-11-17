@@ -34,6 +34,7 @@ func TestTranslate(t *testing.T) {
 		{"forbidden", shared.ErrForbidden, 403, response.CodeForbidden, nil},
 		{"rate limited", shared.ErrRateLimited, 429, response.CodeRateLimited, nil},
 		{"rate limited with a window", shared.RateLimited(60), 429, response.CodeRateLimited, nil},
+		{"body too large", &http.MaxBytesError{Limit: 65536}, 400, response.CodeValidation, nil},
 		{"anything else", errors.New("disk on fire"), 500, response.CodeInternal, nil},
 	}
 	for _, tt := range tests {

@@ -39,6 +39,7 @@ func TestBasics(t *testing.T) {
 	r.Use(RequestID(), Logger(log), Recovery(log), SecurityHeaders(true))
 	r.GET("/ok", func(c *gin.Context) { c.String(http.StatusOK, Nonce(c)) })
 	r.GET("/boom", func(*gin.Context) { panic("kaboom") })
+	r.GET("/boom-after-write", func(c *gin.Context) { c.String(http.StatusOK, "partial"); panic("too late") })
 
 	t.Run("request id is generated, never taken from the client", func(t *testing.T) {
 		w := do(r, http.MethodGet, "/ok", map[string]string{"X-Request-Id": "attacker\nvalue"})
@@ -96,5 +97,13 @@ func TestBasics(t *testing.T) {
 		do(r, http.MethodGet, "/ok?q=secret@example.com", nil)
 		assert.True(t, strings.Contains(logs.String(), "path=/ok"))
 		assert.NotContains(t, logs.String(), "secret@example.com")
+	})
+
+	t.Run("a panic after the response is already written is only logged, not rewritten", func(t *testing.T) {
+		logs.Reset()
+		w := do(r, http.MethodGet, "/boom-after-write", nil)
+		assert.Equal(t, http.StatusOK, w.Code, "the already-written status must survive")
+		assert.Equal(t, "partial", w.Body.String())
+		assert.Contains(t, logs.String(), "too late")
 	})
 }

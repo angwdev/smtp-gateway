@@ -79,3 +79,16 @@ func TestApplyAndRotate(t *testing.T) {
 	assert.NotEqual(t, secret, next)
 	assert.Equal(t, shared.HashSecret(next), c.SecretHash)
 }
+
+func TestApplyRejectsInvalidSenderPattern(t *testing.T) {
+	c, _, err := New("a", "", nil, 0, true, "", t0)
+	require.NoError(t, err)
+	before := c.AllowedSenders
+
+	senders := []string{"not-a-pattern"}
+	err = c.Apply(nil, &senders, nil, nil, t0.Add(time.Hour))
+	var ve *shared.ValidationError
+	require.ErrorAs(t, err, &ve)
+	assert.Equal(t, "allowed_senders", ve.Field)
+	assert.Equal(t, before, c.AllowedSenders, "a failed Apply must not half-apply")
+}

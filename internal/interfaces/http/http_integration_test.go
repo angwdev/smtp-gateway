@@ -5,14 +5,20 @@ package http
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"math/big"
 	nethttp "net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -117,6 +123,9 @@ type env struct {
 	msgs   *appmsg.Handler
 	client *nethttp.Client // cookie jar, does not follow redirects
 	engine *gin.Engine
+	oidc   *OIDC
+	certs  *tlsutil.Loader
+	db     *sqlite.DB
 }
 
 func newEnv(t *testing.T, mutate func(*config.Config)) *env {
@@ -185,7 +194,8 @@ func newEnv(t *testing.T, mutate func(*config.Config)) *env {
 	require.NoError(t, err)
 	client := &nethttp.Client{Jar: jar, CheckRedirect: func(*nethttp.Request, []*nethttp.Request) error { return nethttp.ErrUseLastResponse }}
 
-	return &env{t: t, idp: idp, panel: panel, audit: auditRepo, creds: creds, msgs: msgs, client: client, engine: engine}
+	return &env{t: t, idp: idp, panel: panel, audit: auditRepo, creds: creds, msgs: msgs, client: client, engine: engine,
+		oidc: oidcSvc, certs: certs, db: db}
 }
 
 // ---- small HTTP helpers -----------------------------------------------------
@@ -448,6 +458,14 @@ func TestCredentialAPI(t *testing.T) {
 	assert.True(t, created.Credential.Enabled)
 	assert.NotContains(t, string(body), "secret_hash")
 
+	resp, body = e.do(nethttp.MethodGet, "/api/v1/credentials/1", nil, nil)
+	assert.Equal(t, 200, resp.StatusCode)
+	var fetched struct {
+		Username string `json:"username"`
+	}
+	e.jsonInto(body, &fetched)
+	assert.Equal(t, "nextcloud", fetched.Username)
+
 	resp, _ = e.do(nethttp.MethodPost, "/api/v1/credentials", map[string]any{"username": "nextcloud"}, nil)
 	assert.Equal(t, 409, resp.StatusCode)
 
@@ -493,6 +511,18 @@ func TestCredentialAPI(t *testing.T) {
 	assert.Equal(t, 200, resp.StatusCode)
 	assert.Len(t, e.auditByAction("credential.disable"), 1)
 
+	resp, _ = e.do(nethttp.MethodPatch, "/api/v1/credentials/abc", map[string]any{"enabled": true}, nil)
+	assert.Equal(t, 404, resp.StatusCode, "a non-numeric id must 404 before any binding happens")
+	resp, _ = e.doRaw(nethttp.MethodPatch, "/api/v1/credentials/1", "not json", nil)
+	assert.Equal(t, 400, resp.StatusCode)
+	resp, _ = e.do(nethttp.MethodPatch, "/api/v1/credentials/999", map[string]any{"enabled": true}, nil)
+	assert.Equal(t, 404, resp.StatusCode, "patching a missing credential must 404")
+
+	resp, _ = e.do(nethttp.MethodPost, "/api/v1/credentials/abc/rotate", nil, nil)
+	assert.Equal(t, 404, resp.StatusCode)
+	resp, _ = e.do(nethttp.MethodPost, "/api/v1/credentials/999/rotate", nil, nil)
+	assert.Equal(t, 404, resp.StatusCode, "rotating a missing credential must 404")
+
 	resp, body = e.do(nethttp.MethodPost, "/api/v1/credentials/1/rotate", nil, nil)
 	assert.Equal(t, 200, resp.StatusCode)
 	var rotated struct {
@@ -503,6 +533,11 @@ func TestCredentialAPI(t *testing.T) {
 	assert.NotEqual(t, created.Secret, rotated.Secret)
 	_, err := e.creds.Authenticate(context.Background(), appcred.AuthenticateCommand{Username: "nextcloud", Password: created.Secret})
 	assert.ErrorIs(t, err, shared.ErrInvalidLogin)
+
+	resp, _ = e.do(nethttp.MethodDelete, "/api/v1/credentials/abc", nil, nil)
+	assert.Equal(t, 404, resp.StatusCode)
+	resp, _ = e.do(nethttp.MethodDelete, "/api/v1/credentials/999", nil, nil)
+	assert.Equal(t, 404, resp.StatusCode, "deleting a missing credential must 404")
 
 	resp, _ = e.do(nethttp.MethodDelete, "/api/v1/credentials/1", nil, nil)
 	assert.Equal(t, 204, resp.StatusCode)
@@ -540,10 +575,22 @@ func TestTokenAPI(t *testing.T) {
 	assert.True(t, strings.HasPrefix(created.Secret, "sgw_"))
 	assert.Len(t, created.Secret, 44)
 
+	resp, _ = e.doRaw(nethttp.MethodPost, "/api/v1/tokens", "not json", nil)
+	assert.Equal(t, 400, resp.StatusCode)
+
 	resp, _ = e.bearer(nethttp.MethodGet, "/api/v1/overview", created.Secret, nil)
 	assert.Equal(t, 200, resp.StatusCode)
 	resp, _ = e.bearer(nethttp.MethodGet, "/api/v1/messages", created.Secret, nil)
 	assert.Equal(t, 200, resp.StatusCode)
+	resp, body = e.bearer(nethttp.MethodGet, "/api/v1/session", created.Secret, nil)
+	assert.Equal(t, 200, resp.StatusCode)
+	var sess struct {
+		Auth      string `json:"auth"`
+		TokenName string `json:"token_name"`
+	}
+	e.jsonInto(body, &sess)
+	assert.Equal(t, "token", sess.Auth)
+	assert.Equal(t, "grafana", sess.TokenName)
 	resp, _ = e.bearer(nethttp.MethodPost, "/api/v1/credentials", created.Secret, map[string]any{"username": "x"})
 	assert.Equal(t, 403, resp.StatusCode)
 	resp, _ = e.bearer(nethttp.MethodGet, "/api/v1/tokens", created.Secret, nil)
@@ -597,6 +644,10 @@ func TestTokenAPI(t *testing.T) {
 		}
 	}
 	require.NotZero(t, grafanaID)
+	resp, _ = e.do(nethttp.MethodDelete, "/api/v1/tokens/abc", nil, nil)
+	assert.Equal(t, 404, resp.StatusCode)
+	resp, _ = e.do(nethttp.MethodDelete, "/api/v1/tokens/999999", nil, nil)
+	assert.Equal(t, 404, resp.StatusCode, "revoking a missing token must 404")
 	resp, _ = e.do(nethttp.MethodDelete, fmt.Sprintf("/api/v1/tokens/%d", grafanaID), nil, nil)
 	assert.Equal(t, 204, resp.StatusCode)
 	resp, _ = e.bearer(nethttp.MethodGet, "/api/v1/overview", created.Secret, nil)
@@ -696,6 +747,31 @@ func TestReadEndpoints(t *testing.T) {
 	assert.Equal(t, 400, resp.StatusCode)
 	resp, _ = e.do(nethttp.MethodGet, "/api/v1/messages?from=yesterday", nil, nil)
 	assert.Equal(t, 400, resp.StatusCode)
+	resp, _ = e.do(nethttp.MethodGet, "/api/v1/messages?to=yesterday", nil, nil)
+	assert.Equal(t, 400, resp.StatusCode)
+	resp, _ = e.do(nethttp.MethodGet, "/api/v1/messages?before=abc", nil, nil)
+	assert.Equal(t, 400, resp.StatusCode)
+	resp, _ = e.do(nethttp.MethodGet, "/api/v1/messages?limit=abc", nil, nil)
+	assert.Equal(t, 400, resp.StatusCode)
+	resp, _ = e.do(nethttp.MethodGet, "/api/v1/messages?credential_id=abc", nil, nil)
+	assert.Equal(t, 400, resp.StatusCode)
+	resp, _ = e.do(nethttp.MethodGet, "/api/v1/messages?from=2020-01-01T00:00:00Z", nil, nil)
+	assert.Equal(t, 200, resp.StatusCode, "a valid RFC 3339 from= must be accepted")
+	resp, _ = e.do(nethttp.MethodGet, "/api/v1/messages/abc", nil, nil)
+	assert.Equal(t, 404, resp.StatusCode)
+	resp, _ = e.do(nethttp.MethodGet, "/api/v1/messages/999999", nil, nil)
+	assert.Equal(t, 404, resp.StatusCode, "fetching a missing message must 404")
+
+	require.NoError(t, e.msgs.Record(ctx, appmsg.RecordCommand{RemoteIP: "203.0.113.1", MailFrom: "a@b.test", Status: message.StatusSent}))
+	_, body = e.do(nethttp.MethodGet, "/api/v1/messages?limit=1", nil, nil)
+	e.jsonInto(body, &page)
+	require.Len(t, page.Items, 1)
+	var noRcptDetail struct {
+		RcptTo []string `json:"rcpt_to"`
+	}
+	_, body = e.do(nethttp.MethodGet, fmt.Sprintf("/api/v1/messages/%d", page.Items[0].ID), nil, nil)
+	e.jsonInto(body, &noRcptDetail)
+	assert.Equal(t, []string{}, noRcptDetail.RcptTo, "a nil RcptTo must become an empty array, never null")
 
 	_, body = e.do(nethttp.MethodGet, "/api/v1/messages", nil, nil)
 	e.jsonInto(body, &page)
@@ -714,6 +790,33 @@ func TestReadEndpoints(t *testing.T) {
 	}
 	e.jsonInto(body, &detail)
 	assert.Contains(t, detail.HeadersRaw, "Subject:")
+
+	resp, body = e.do(nethttp.MethodPost, "/api/v1/credentials", map[string]any{"username": "relay1"}, nil)
+	require.Equal(t, 201, resp.StatusCode, string(body))
+	resp, _ = e.do(nethttp.MethodPatch, "/api/v1/credentials/1", map[string]any{"rate_per_hour": 7}, nil)
+	require.Equal(t, 200, resp.StatusCode)
+
+	resp, _ = e.do(nethttp.MethodGet, "/api/v1/audit?result=bogus", nil, nil)
+	assert.Equal(t, 400, resp.StatusCode)
+	resp, _ = e.do(nethttp.MethodGet, "/api/v1/audit?from=yesterday", nil, nil)
+	assert.Equal(t, 400, resp.StatusCode)
+	resp, _ = e.do(nethttp.MethodGet, "/api/v1/audit?to=yesterday", nil, nil)
+	assert.Equal(t, 400, resp.StatusCode)
+	resp, _ = e.do(nethttp.MethodGet, "/api/v1/audit?before=abc", nil, nil)
+	assert.Equal(t, 400, resp.StatusCode)
+	resp, _ = e.do(nethttp.MethodGet, "/api/v1/audit?limit=abc", nil, nil)
+	assert.Equal(t, 400, resp.StatusCode)
+
+	_, body = e.do(nethttp.MethodGet, "/api/v1/audit?action=credential.update", nil, nil)
+	var changePage struct {
+		Items []struct {
+			Action  string                     `json:"action"`
+			Changes map[string]json.RawMessage `json:"changes"`
+		} `json:"items"`
+	}
+	e.jsonInto(body, &changePage)
+	require.NotEmpty(t, changePage.Items, "the rate_per_hour patch above must show up")
+	assert.Contains(t, changePage.Items[0].Changes, "rate_per_hour")
 
 	_, body = e.do(nethttp.MethodGet, "/api/v1/audit?action=credential.", nil, nil)
 	var auditPage struct {
@@ -735,7 +838,8 @@ func TestReadEndpoints(t *testing.T) {
 			Hour string `json:"hour"`
 		} `json:"series"`
 		Credentials struct {
-			Total int `json:"total"`
+			Total  int `json:"total"`
+			Active int `json:"active"`
 		} `json:"credentials"`
 		Certificate struct {
 			Source string `json:"source"`
@@ -748,6 +852,8 @@ func TestReadEndpoints(t *testing.T) {
 	assert.Len(t, ov.Series, 24)
 	assert.Equal(t, "self-signed", ov.Certificate.Source)
 	assert.Equal(t, "127.0.0.1:1", ov.Upstream.Addr)
+	assert.Equal(t, 1, ov.Credentials.Total)
+	assert.Equal(t, 1, ov.Credentials.Active, "the credential created above is enabled by default")
 	assert.NotContains(t, strings.ToLower(string(body)), "password")
 
 	resp, body = e.do(nethttp.MethodPost, "/api/v1/upstream/test", nil, nil)
@@ -777,4 +883,212 @@ func TestReadEndpoints(t *testing.T) {
 	assert.NotEmpty(t, resp.Header.Get("X-Content-Type-Options"))
 	resp, _ = e.do(nethttp.MethodGet, "/", nil, nil)
 	assert.NotEmpty(t, resp.Header.Get("Content-Security-Policy"))
+}
+
+// ---- additional coverage: healthz, overview certificate levels, OIDC edge cases --
+
+func TestHealthzReportsDatabaseFailure(t *testing.T) {
+	e := newEnv(t, nil)
+	require.NoError(t, e.db.Close())
+	resp, body := e.do(nethttp.MethodGet, "/healthz", nil, nil)
+	assert.Equal(t, 503, resp.StatusCode)
+	assert.Equal(t, "unavailable\n", string(body))
+}
+
+// shortCert builds a minimal self-signed certificate expiring at notAfter,
+// so overview certView's day-left thresholds can be exercised deterministically.
+func shortCert(t *testing.T, notAfter time.Time) *tls.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 120))
+	require.NoError(t, err)
+	tmpl := &x509.Certificate{
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: "smtp.example.com"},
+		DNSNames:     []string{"smtp.example.com"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     notAfter,
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	require.NoError(t, err)
+	leaf, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+	return &tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key, Leaf: leaf}
+}
+
+func TestOverviewCertificateLevels(t *testing.T) {
+	e := newEnv(t, nil)
+	resp := e.login(map[string]any{"email": "admin@example.com", "email_verified": true})
+	require.Equal(t, 302, resp.StatusCode)
+
+	type certView struct {
+		Source   string `json:"source"`
+		Label    string `json:"label"`
+		Level    string `json:"level"`
+		DaysLeft int    `json:"days_left"`
+	}
+	get := func() certView {
+		_, body := e.do(nethttp.MethodGet, "/api/v1/overview", nil, nil)
+		var ov struct {
+			Certificate certView `json:"certificate"`
+		}
+		e.jsonInto(body, &ov)
+		return ov.Certificate
+	}
+
+	cases := []struct {
+		name     string
+		notAfter time.Duration
+		level    string
+	}{
+		{"about to expire", 2 * 24 * time.Hour, "bad"},
+		{"renewing soon", 10 * 24 * time.Hour, "warn"},
+		{"healthy", 60 * 24 * time.Hour, "ok"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e.certs.Set(shortCert(t, time.Now().Add(tc.notAfter)), tlsutil.SourceFile)
+			v := get()
+			assert.Equal(t, "file", v.Source)
+			assert.Equal(t, "Certificate file", v.Label)
+			assert.Equal(t, tc.level, v.Level)
+		})
+	}
+}
+
+func TestCheckProviderLogsReachability(t *testing.T) {
+	ctx := context.Background()
+	bad := newEnv(t, func(c *config.Config) { c.OIDCIssuer = "http://127.0.0.1:1" })
+	bad.oidc.CheckProvider(ctx) // unreachable: must log and return, never panic
+
+	good := newEnv(t, nil)
+	good.oidc.CheckProvider(ctx) // reachable: must discover the provider and log success
+}
+
+func TestOIDCSignAndVerify(t *testing.T) {
+	o := &OIDC{stateKey: []byte("0123456789abcdef0123456789abcdef")}
+
+	_, err := o.sign(make(chan int))
+	assert.Error(t, err, "a value that cannot be marshaled must fail to sign")
+
+	assert.Error(t, o.verify("no-dot-here", &loginState{}), "a cookie without a signature separator must fail")
+	assert.Error(t, o.verify("payload.wrongsignature", &loginState{}), "a bad signature must fail")
+
+	payload := "not-valid-base64!!!"
+	raw := payload + "." + o.mac(payload)
+	assert.Error(t, o.verify(raw, &loginState{}), "a signature-valid but non-base64 payload must fail to decode")
+
+	st := loginState{State: "s", Nonce: "n"}
+	signed, err := o.sign(st)
+	require.NoError(t, err)
+	var out loginState
+	require.NoError(t, o.verify(signed, &out))
+	assert.Equal(t, st, out)
+}
+
+func TestClaimedEmailFallbacks(t *testing.T) {
+	assert.Equal(t, "a@b.com", claimedEmail(map[string]any{"email": "A@B.com"}))
+	assert.Equal(t, "carol", claimedEmail(map[string]any{"preferred_username": "carol"}))
+	assert.Equal(t, "sub-123", claimedEmail(map[string]any{"sub": "sub-123"}))
+	assert.Equal(t, "unknown", claimedEmail(map[string]any{}))
+}
+
+func TestOIDCAuthorizeBranches(t *testing.T) {
+	log := slog.New(slog.DiscardHandler)
+
+	t.Run("no allow-lists accepts anyone", func(t *testing.T) {
+		o := &OIDC{cfg: &config.Config{}, log: log}
+		u, reason := o.authorize(map[string]any{"email": "x@y.com"})
+		require.NotNil(t, u)
+		assert.Empty(t, reason)
+	})
+
+	t.Run("email falls back to preferred_username then sub", func(t *testing.T) {
+		o := &OIDC{cfg: &config.Config{}, log: log}
+		u, _ := o.authorize(map[string]any{"preferred_username": "carol"})
+		assert.Equal(t, "carol", u.Email)
+		u, _ = o.authorize(map[string]any{"sub": "sub-42"})
+		assert.Equal(t, "sub-42", u.Email)
+	})
+
+	t.Run("groups claim as a []any", func(t *testing.T) {
+		o := &OIDC{cfg: &config.Config{OIDCAllowedGroups: []string{"admins"}, OIDCGroupsClaim: "groups"}, log: log}
+		u, reason := o.authorize(map[string]any{"email": "x@y.com", "groups": []any{"staff", "admins"}})
+		require.NotNil(t, u, "reason = %q", reason)
+	})
+
+	t.Run("listed but unverified email is refused with a specific reason", func(t *testing.T) {
+		o := &OIDC{cfg: &config.Config{OIDCAllowedEmails: []string{"x@y.com"}}, log: log}
+		u, reason := o.authorize(map[string]any{"email": "x@y.com", "email_verified": false})
+		assert.Nil(t, u)
+		assert.Contains(t, reason, "unverified")
+	})
+
+	t.Run("no email at all when emails are configured", func(t *testing.T) {
+		o := &OIDC{cfg: &config.Config{OIDCAllowedEmails: []string{"x@y.com"}}, log: log}
+		u, reason := o.authorize(map[string]any{})
+		assert.Nil(t, u)
+		assert.Contains(t, reason, "no e-mail address")
+	})
+
+	t.Run("groups configured but token has none", func(t *testing.T) {
+		o := &OIDC{cfg: &config.Config{OIDCAllowedGroups: []string{"admins"}, OIDCGroupsClaim: "groups"}, log: log}
+		u, reason := o.authorize(map[string]any{"email": "x@y.com"})
+		assert.Nil(t, u)
+		assert.Contains(t, reason, "OIDC_ALLOWED_GROUPS")
+	})
+}
+
+// signLoginState forges a login cookie without going through /login, so
+// Callback's own branches after the cookie check can be reached directly.
+func signLoginState(t *testing.T, st loginState) string {
+	t.Helper()
+	o := &OIDC{stateKey: []byte("0123456789abcdef0123456789abcdef")}
+	signed, err := o.sign(st)
+	require.NoError(t, err)
+	return signed
+}
+
+func (e *env) setLoginCookie(t *testing.T, value string) {
+	t.Helper()
+	u, err := url.Parse(e.panel.URL)
+	require.NoError(t, err)
+	e.client.Jar.SetCookies(u, []*nethttp.Cookie{{Name: loginCookie, Value: value}})
+}
+
+func TestCallbackWhenProviderUnreachable(t *testing.T) {
+	// A forged-but-valid cookie bypasses /login, so the client's provider
+	// cache is empty and Callback's own discovery call must fail cleanly.
+	e := newEnv(t, func(c *config.Config) { c.OIDCIssuer = "http://127.0.0.1:1" })
+	st := loginState{State: "s1", Nonce: "n1", Verifier: "v", Next: "/", Exp: time.Now().Add(time.Minute).Unix()}
+	e.setLoginCookie(t, signLoginState(t, st))
+	resp, _ := e.do(nethttp.MethodGet, "/auth/callback?state=s1&code=whatever", nil, nil)
+	assert.Equal(t, 302, resp.StatusCode)
+	assert.True(t, strings.HasPrefix(resp.Header.Get("Location"), "/signed-out#error="))
+}
+
+func TestCallbackWithBogusCodeFailsExchange(t *testing.T) {
+	e := newEnv(t, nil)
+	st := loginState{State: "s1", Nonce: "n1", Verifier: "v", Next: "/", Exp: time.Now().Add(time.Minute).Unix()}
+	e.setLoginCookie(t, signLoginState(t, st))
+	resp, _ := e.do(nethttp.MethodGet, "/auth/callback?state=s1&code=never-granted", nil, nil)
+	assert.Equal(t, 302, resp.StatusCode)
+	assert.True(t, strings.HasPrefix(resp.Header.Get("Location"), "/signed-out#error="))
+}
+
+func TestCallbackRejectsWrongAudience(t *testing.T) {
+	e := newEnv(t, nil)
+	resp := e.login(map[string]any{"email": "admin@example.com", "email_verified": true, "aud": "someone-else"})
+	assert.Equal(t, 302, resp.StatusCode)
+	assert.True(t, strings.HasPrefix(resp.Header.Get("Location"), "/signed-out#error="), "location = %q", resp.Header.Get("Location"))
+}
+
+func TestCallbackRejectsNonceMismatch(t *testing.T) {
+	e := newEnv(t, nil)
+	resp := e.login(map[string]any{"email": "admin@example.com", "email_verified": true, "nonce": "not-the-one-we-sent"})
+	assert.Equal(t, 302, resp.StatusCode)
+	assert.True(t, strings.HasPrefix(resp.Header.Get("Location"), "/signed-out#error="), "location = %q", resp.Header.Get("Location"))
 }

@@ -44,10 +44,7 @@ func New(username, description string, senders []string, ratePerHour int, enable
 	if err := c.Apply(&description, &senders, &ratePerHour, nil, now); err != nil {
 		return nil, "", err
 	}
-	secret, err := c.Rotate(now)
-	if err != nil {
-		return nil, "", err
-	}
+	secret, _ := c.Rotate(now) // Rotate never fails; see its comment.
 	return c, secret, nil
 }
 
@@ -84,10 +81,10 @@ func (c *Credential) Apply(description *string, senders *[]string, ratePerHour *
 
 // Rotate replaces the secret and returns the new plaintext.
 func (c *Credential) Rotate(now time.Time) (string, error) {
-	secret, err := shared.RandomString(SecretLength, shared.SecretAlphabet)
-	if err != nil {
-		return "", err
-	}
+	// SecretLength and SecretAlphabet are fixed, valid constants, so this
+	// call can only fail on bad input (tested directly in secret_test.go);
+	// it never does here.
+	secret, _ := shared.RandomString(SecretLength, shared.SecretAlphabet)
 	c.SecretHash = shared.HashSecret(secret)
 	c.UpdatedAt = now
 	return secret, nil

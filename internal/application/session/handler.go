@@ -25,10 +25,7 @@ func NewHandler(repo domain.Repository, ttl time.Duration) *Handler {
 
 // Create starts a session and returns the raw id for the cookie.
 func (h *Handler) Create(ctx context.Context, email, name, ip, userAgent string) (string, *domain.Session, error) {
-	s, raw, err := domain.New(email, name, ip, userAgent, h.ttl, h.now())
-	if err != nil {
-		return "", nil, fmt.Errorf("create session: %w", err)
-	}
+	s, raw, _ := domain.New(email, name, ip, userAgent, h.ttl, h.now()) // domain.New never fails; see its comment.
 	if err := h.repo.Create(ctx, s); err != nil {
 		return "", nil, fmt.Errorf("create session: %w", err)
 	}

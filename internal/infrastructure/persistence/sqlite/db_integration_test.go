@@ -37,3 +37,16 @@ func TestOpen(t *testing.T) {
 	require.NoError(t, db.Read.Raw("SELECT value FROM settings WHERE key = 'k'").Scan(&v).Error)
 	assert.Equal(t, "v", v)
 }
+
+func TestOpenRejectsAPathThatIsADirectory(t *testing.T) {
+	// A directory is not a valid SQLite file: migration fails when it
+	// actually touches the file, so Open must close the writer and report it.
+	_, err := Open(context.Background(), t.TempDir(), slog.New(slog.DiscardHandler))
+	require.Error(t, err)
+}
+
+func TestPingAfterCloseFails(t *testing.T) {
+	db := newTestDB(t)
+	require.NoError(t, db.Close())
+	assert.Error(t, db.Ping(context.Background()))
+}

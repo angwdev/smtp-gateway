@@ -1,6 +1,7 @@
 package credential
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -49,6 +50,7 @@ func TestNewSenderPolicy(t *testing.T) {
 		{"trims, lowercases, drops blanks", []string{" Alerts@Example.com ", "", "@*.Example.com", "*"}, SenderPolicy{"alerts@example.com", "@*.example.com", "*"}, false},
 		{"needs an at sign", []string{"example.com"}, nil, true},
 		{"too many", manyTooMany, nil, true},
+		{"pattern too long", []string{"a@" + strings.Repeat("b", 255)}, nil, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

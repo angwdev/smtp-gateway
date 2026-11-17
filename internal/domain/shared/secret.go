@@ -6,7 +6,6 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
-	"fmt"
 )
 
 // SecretAlphabet leaves out look-alike characters (0 O 1 l I).
@@ -23,9 +22,7 @@ func RandomString(n int, alphabet string) (string, error) {
 	out := make([]byte, 0, n)
 	buf := make([]byte, n+n/2+8)
 	for len(out) < n {
-		if _, err := rand.Read(buf); err != nil {
-			return "", fmt.Errorf("read random bytes: %w", err)
-		}
+		_, _ = rand.Read(buf) // crypto/rand.Read never fails on supported platforms (Go 1.24+).
 		for _, b := range buf {
 			if int(b) >= limit {
 				continue

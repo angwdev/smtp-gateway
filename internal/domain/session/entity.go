@@ -4,7 +4,6 @@ package session
 import (
 	"crypto/rand"
 	"encoding/base64"
-	"fmt"
 	"time"
 
 	"github.com/angwdev/smtp-gateway/internal/domain/shared"
@@ -22,12 +21,12 @@ type Session struct {
 	UserAgent string
 }
 
-// New creates a session and returns the raw id for the cookie.
+// New creates a session and returns the raw id for the cookie. The error
+// return exists for interface symmetry with other domain constructors; it
+// is always nil, since crypto/rand.Read never fails on supported platforms.
 func New(email, name, ip, userAgent string, ttl time.Duration, now time.Time) (*Session, string, error) {
 	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
-		return nil, "", fmt.Errorf("read random bytes: %w", err)
-	}
+	_, _ = rand.Read(raw) // crypto/rand.Read never fails on supported platforms (Go 1.24+).
 	id := base64.RawURLEncoding.EncodeToString(raw)
 	return &Session{
 		IDHash: HashID(id), Email: email, Name: name, CreatedAt: now, ExpiresAt: now.Add(ttl),
