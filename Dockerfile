@@ -1,17 +1,26 @@
 # syntax=docker/dockerfile:1
-# The build stage runs natively and cross-compiles (pure Go, no cgo), so
+# Both build stages run natively and cross-compile (pure Go, no cgo), so
 # multi-arch images build fast without QEMU.
+
+FROM --platform=$BUILDPLATFORM oven/bun:1.3.14-alpine AS ui
+WORKDIR /ui
+COPY ui/package.json ui/bun.lock ./
+RUN --mount=type=cache,target=/root/.bun/install/cache bun install --frozen-lockfile
+COPY ui/ ./
+RUN bun run build
+
 FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 RUN apk add --no-cache ca-certificates
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
+COPY --from=ui /ui/dist/ internal/interfaces/http/ui/dist/
 ARG TARGETOS TARGETARCH TARGETVARIANT
 ARG VERSION=dev
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH GOARM=${TARGETVARIANT#v} \
-    go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+    go build -trimpath -tags=nomsgpack -ldflags "-s -w -X main.version=${VERSION}" \
       -o /out/smtp-gateway ./cmd/smtp-gateway \
  && mkdir -p /out/data
 
