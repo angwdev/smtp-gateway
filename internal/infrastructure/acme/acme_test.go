@@ -25,7 +25,7 @@ import (
 	"github.com/go-acme/lego/v5/challenge/dns01"
 
 	"github.com/angwdev/smtp-gateway/internal/config"
-	"github.com/angwdev/smtp-gateway/internal/tlsutil"
+	"github.com/angwdev/smtp-gateway/internal/infrastructure/tlsutil"
 )
 
 // TestPebble runs the full DNS-01 flow against Pebble (Let's Encrypt's test
@@ -110,7 +110,7 @@ func TestPebble(t *testing.T) {
 	if due, _, ari := m.renewalDue(ctx, client, cert.Leaf); due || !ari {
 		t.Fatalf("fresh cert: due=%v ari=%v", due, ari)
 	}
-	if m.check(ctx, false); m.Status().LastAttempt != (time.Time{}) { //nolint:gocritic // v1, replaced in Task 6.1
+	if m.check(ctx, false); m.Status().LastAttempt != (time.Time{}) {
 		t.Fatal("renewed a certificate that was not due")
 	}
 

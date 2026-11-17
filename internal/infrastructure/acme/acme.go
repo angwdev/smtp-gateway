@@ -34,7 +34,7 @@ import (
 	"github.com/go-acme/lego/v5/registration"
 
 	"github.com/angwdev/smtp-gateway/internal/config"
-	"github.com/angwdev/smtp-gateway/internal/tlsutil"
+	"github.com/angwdev/smtp-gateway/internal/infrastructure/tlsutil"
 )
 
 // Providers lists the supported DNS providers.
@@ -56,7 +56,7 @@ type Status struct {
 	ARI         bool // renewal window came from the CA
 }
 
-type Manager struct { //nolint:revive // v1, replaced in Task 6.1
+type Manager struct {
 	cfg    config.ACME
 	dir    string
 	loader *tlsutil.Loader
@@ -72,7 +72,7 @@ type Manager struct { //nolint:revive // v1, replaced in Task 6.1
 
 // New prepares a manager and validates the DNS provider credentials. If a
 // previously issued certificate is on disk it is served immediately.
-func New(cfg config.ACME, dataDir string, loader *tlsutil.Loader) (*Manager, error) { //nolint:gocritic // v1, replaced in Task 6.1
+func New(cfg config.ACME, dataDir string, loader *tlsutil.Loader) (*Manager, error) {
 	p, err := newDNSProvider(cfg.DNSProvider)
 	if err != nil {
 		return nil, err
@@ -80,7 +80,7 @@ func New(cfg config.ACME, dataDir string, loader *tlsutil.Loader) (*Manager, err
 	return newManager(cfg, dataDir, loader, p)
 }
 
-func newManager(cfg config.ACME, dataDir string, loader *tlsutil.Loader, p challenge.Provider) (*Manager, error) { //nolint:gocritic // v1, replaced in Task 6.1
+func newManager(cfg config.ACME, dataDir string, loader *tlsutil.Loader, p challenge.Provider) (*Manager, error) {
 	m := &Manager{
 		cfg:      cfg,
 		dir:      filepath.Join(dataDir, "acme"),
@@ -120,7 +120,7 @@ func newDNSProvider(name string) (challenge.Provider, error) {
 	return nil, fmt.Errorf("ACME_DNS_PROVIDER must be one of %s (got %q)", strings.Join(Providers, ", "), name)
 }
 
-func (m *Manager) Status() Status { //nolint:revive // v1, replaced in Task 6.1
+func (m *Manager) Status() Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s := m.status
@@ -307,9 +307,9 @@ type user struct {
 	key          crypto.Signer
 }
 
-func (u *user) GetEmail() string                       { return u.Email }        //nolint:revive // v1, replaced in Task 6.1
-func (u *user) GetRegistration() *acme.ExtendedAccount { return u.Registration } //nolint:revive // v1, replaced in Task 6.1
-func (u *user) GetPrivateKey() crypto.Signer           { return u.key }          //nolint:revive // v1, replaced in Task 6.1
+func (u *user) GetEmail() string                       { return u.Email }
+func (u *user) GetRegistration() *acme.ExtendedAccount { return u.Registration }
+func (u *user) GetPrivateKey() crypto.Signer           { return u.key }
 
 // accountDir is per CA, so switching between staging and production keeps
 // both accounts.
@@ -386,7 +386,7 @@ type certMeta struct {
 
 // matches reports whether the stored certificate was issued for the current
 // configuration; any change triggers a new order.
-func (c certMeta) matches(cfg config.ACME) bool { //nolint:gocritic // v1, replaced in Task 6.1
+func (c certMeta) matches(cfg config.ACME) bool {
 	return slices.Equal(c.Domains, cfg.Domains) && c.CA == cfg.CAURL && c.KeyType == cfg.KeyType
 }
 

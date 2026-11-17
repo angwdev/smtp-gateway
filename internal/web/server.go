@@ -16,11 +16,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/angwdev/smtp-gateway/internal/acme"
+	"github.com/angwdev/smtp-gateway/internal/infrastructure/acme"
 	"github.com/angwdev/smtp-gateway/internal/config"
 	"github.com/angwdev/smtp-gateway/internal/proxy"
 	"github.com/angwdev/smtp-gateway/internal/store"
-	"github.com/angwdev/smtp-gateway/internal/tlsutil"
+	"github.com/angwdev/smtp-gateway/internal/infrastructure/tlsutil"
 )
 
 //go:embed templates/*.html static/* static/fonts/*

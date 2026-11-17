@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/angwdev/smtp-gateway/internal/acme"
+	"github.com/angwdev/smtp-gateway/internal/infrastructure/acme"
 	"github.com/angwdev/smtp-gateway/internal/store"
-	"github.com/angwdev/smtp-gateway/internal/tlsutil"
+	"github.com/angwdev/smtp-gateway/internal/infrastructure/tlsutil"
 )
 
 func urlQueryEscape(s string) string { return url.QueryEscape(s) }

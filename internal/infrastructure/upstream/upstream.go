@@ -1,4 +1,5 @@
-package proxy
+// Package upstream opens authenticated connections to the real mail server.
+package upstream
 
 import (
 	"context"
@@ -14,20 +15,25 @@ import (
 	"github.com/angwdev/smtp-gateway/internal/config"
 )
 
-// Upstream opens authenticated connections to the real mail server using the
+// Client opens authenticated connections to the real mail server using the
 // single gateway credential.
-type Upstream struct {
+type Client struct {
 	cfg config.Upstream
 }
 
-func NewUpstream(cfg config.Upstream) *Upstream { return &Upstream{cfg: cfg} }
+// New returns a Client configured to dial the given upstream.
+//
+//nolint:gocritic // hugeParam: config.Upstream is passed by value throughout
+func New(cfg config.Upstream) *Client { return &Client{cfg: cfg} }
 
-func (u *Upstream) Config() config.Upstream { return u.cfg }
+// Config returns the upstream configuration the client was built with.
+func (u *Client) Config() config.Upstream { return u.cfg }
 
-func (u *Upstream) Dial(ctx context.Context) (*smtp.Client, error) {
+// Dial opens and authenticates a connection to the upstream server.
+func (u *Client) Dial(ctx context.Context) (*smtp.Client, error) {
 	tlsConf := &tls.Config{
 		ServerName:         u.cfg.Host,
-		InsecureSkipVerify: u.cfg.TLSSkipVerify,
+		InsecureSkipVerify: u.cfg.TLSSkipVerify, //nolint:gosec // operator opt-in via UPSTREAM_TLS_SKIP_VERIFY, not user input
 		MinVersion:         tls.VersionTLS12,
 	}
 	d := net.Dialer{Timeout: u.cfg.Timeout}
@@ -44,7 +50,7 @@ func (u *Upstream) Dial(ctx context.Context) (*smtp.Client, error) {
 		err = tc.HandshakeContext(hctx)
 		cancel()
 		if err != nil {
-			conn.Close()
+			_ = conn.Close()
 			return nil, fmt.Errorf("tls handshake: %w", err)
 		}
 		c = newClient(tc, u.cfg.Timeout)
@@ -52,9 +58,9 @@ func (u *Upstream) Dial(ctx context.Context) (*smtp.Client, error) {
 	case "starttls":
 		// NewClientStartTLS greets with "localhost"; once TLS is up the client
 		// re-introduces itself, so Hello sets our real name for the session.
-		conn.SetDeadline(time.Now().Add(u.cfg.Timeout))
+		_ = conn.SetDeadline(time.Now().Add(u.cfg.Timeout))
 		c, err = smtp.NewClientStartTLS(conn, tlsConf)
-		conn.SetDeadline(time.Time{})
+		_ = conn.SetDeadline(time.Time{})
 		if err == nil {
 			c.CommandTimeout = u.cfg.Timeout
 			err = c.Hello(u.cfg.HeloName)
@@ -65,9 +71,9 @@ func (u *Upstream) Dial(ctx context.Context) (*smtp.Client, error) {
 	}
 	if err != nil {
 		if c != nil {
-			c.Close()
+			_ = c.Close()
 		} else {
-			conn.Close()
+			_ = conn.Close()
 		}
 		return nil, err
 	}
@@ -80,11 +86,11 @@ func (u *Upstream) Dial(ctx context.Context) (*smtp.Client, error) {
 		case c.SupportsAuth("LOGIN"):
 			mech = sasl.NewLoginClient(u.cfg.Username, u.cfg.Password)
 		default:
-			c.Close()
+			_ = c.Close()
 			return nil, errors.New("upstream offers neither AUTH PLAIN nor AUTH LOGIN")
 		}
 		if err := c.Auth(mech); err != nil {
-			c.Close()
+			_ = c.Close()
 			return nil, fmt.Errorf("upstream auth: %w", err)
 		}
 	}
@@ -98,7 +104,7 @@ func newClient(conn net.Conn, timeout time.Duration) *smtp.Client {
 }
 
 // Probe connects, authenticates and disconnects, reporting how long it took.
-func (u *Upstream) Probe(ctx context.Context) (time.Duration, error) {
+func (u *Client) Probe(ctx context.Context) (time.Duration, error) {
 	start := time.Now()
 	c, err := u.Dial(ctx)
 	if err != nil {

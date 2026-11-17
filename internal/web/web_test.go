@@ -24,7 +24,7 @@ import (
 	"github.com/angwdev/smtp-gateway/internal/config"
 	"github.com/angwdev/smtp-gateway/internal/proxy"
 	"github.com/angwdev/smtp-gateway/internal/store"
-	"github.com/angwdev/smtp-gateway/internal/tlsutil"
+	"github.com/angwdev/smtp-gateway/internal/infrastructure/tlsutil"
 )
 
 // ---- mock OIDC provider ----------------------------------------------------

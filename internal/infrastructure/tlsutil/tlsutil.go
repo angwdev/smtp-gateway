@@ -36,9 +36,9 @@ type Info struct {
 	NotAfter  time.Time
 }
 
-func (i Info) Remaining() time.Duration { return time.Until(i.NotAfter) } //nolint:revive,gocritic // v1, replaced in Task 6.1
+func (i Info) Remaining() time.Duration { return time.Until(i.NotAfter) }
 
-type Loader struct { //nolint:revive // v1, replaced in Task 6.1
+type Loader struct {
 	mu   sync.Mutex
 	cert *tls.Certificate
 	info Info
@@ -101,13 +101,13 @@ func (l *Loader) set(cert *tls.Certificate, source string) {
 	}
 }
 
-func (l *Loader) Info() Info { //nolint:revive // v1, replaced in Task 6.1
+func (l *Loader) Info() Info {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.info
 }
 
-func (l *Loader) Config() *tls.Config { //nolint:revive // v1, replaced in Task 6.1
+func (l *Loader) Config() *tls.Config {
 	return &tls.Config{
 		MinVersion: tls.VersionTLS12,
 		GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
