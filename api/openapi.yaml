@@ -1,0 +1,581 @@
+openapi: 3.1.0
+info:
+  title: SMTP Gateway API
+  version: "1.0.0"
+  description: |
+    JSON API for the SMTP Gateway panel. Every endpoint is under /api/v1,
+    returns JSON, and sends Cache-Control: no-store. Authentication is
+    either the panel's session cookie or an API token sent as
+    `Authorization: Bearer sgw_...`.
+servers:
+  - url: /api/v1
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+    cookie:
+      type: apiKey
+      in: cookie
+      name: __Host-sg_session
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, METHOD_NOT_ALLOWED, CONFLICT, RATE_LIMITED, INTERNAL_ERROR]
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+    Session:
+      type: object
+      required: [auth, scope, expires_at]
+      properties:
+        auth:
+          type: string
+          enum: [session, token]
+        user:
+          type: object
+          nullable: true
+          properties:
+            email: { type: string }
+            name: { type: string }
+        token_name:
+          type: string
+        scope:
+          type: string
+          enum: [read, write]
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+    Credential:
+      type: object
+      required: [id, username, description, allowed_senders, rate_per_hour, enabled, created_at, created_by, updated_at, last_used_at, last_used_ip, sent_count]
+      properties:
+        id: { type: integer }
+        username: { type: string }
+        description: { type: string }
+        allowed_senders:
+          type: array
+          items: { type: string }
+        rate_per_hour: { type: integer }
+        enabled: { type: boolean }
+        created_at: { type: string, format: date-time }
+        created_by: { type: string }
+        updated_at: { type: string, format: date-time }
+        last_used_at: { type: string, format: date-time, nullable: true }
+        last_used_ip: { type: string }
+        sent_count: { type: integer }
+    CredentialCreate:
+      type: object
+      required: [username]
+      properties:
+        username: { type: string }
+        description: { type: string }
+        allowed_senders:
+          type: array
+          items: { type: string }
+        rate_per_hour: { type: integer }
+        enabled: { type: boolean }
+    CredentialPatch:
+      type: object
+      properties:
+        description: { type: string }
+        allowed_senders:
+          type: array
+          items: { type: string }
+        rate_per_hour: { type: integer }
+        enabled: { type: boolean }
+    CredentialSecret:
+      type: object
+      required: [credential, secret]
+      properties:
+        credential: { $ref: "#/components/schemas/Credential" }
+        secret: { type: string }
+    Message:
+      type: object
+      required: [id, created_at, credential_id, username, remote_ip, mail_from, rcpt_to, size, status, detail, subject]
+      properties:
+        id: { type: integer }
+        created_at: { type: string, format: date-time }
+        credential_id: { type: integer, nullable: true }
+        username: { type: string }
+        remote_ip: { type: string }
+        mail_from: { type: string }
+        rcpt_to:
+          type: array
+          items: { type: string }
+        size: { type: integer }
+        status: { type: string, enum: [sent, failed, rejected] }
+        detail: { type: string }
+        subject: { type: string }
+    HeaderField:
+      type: object
+      required: [name, value]
+      properties:
+        name: { type: string }
+        value: { type: string }
+    MessageDetail:
+      allOf:
+        - $ref: "#/components/schemas/Message"
+        - type: object
+          required: [headers, headers_raw, headers_truncated]
+          properties:
+            headers:
+              type: array
+              items: { $ref: "#/components/schemas/HeaderField" }
+            headers_raw: { type: string }
+            headers_truncated: { type: boolean }
+    AuditChange:
+      type: object
+      properties:
+        from: {}
+        to: {}
+    AuditEvent:
+      type: object
+      required: [id, created_at, actor, actor_type, action, target_type, target_id, target_label, result, ip, user_agent, request_id, detail, changes]
+      properties:
+        id: { type: integer }
+        created_at: { type: string, format: date-time }
+        actor: { type: string }
+        actor_type: { type: string, enum: [user, token, cli, system, smtp] }
+        action: { type: string }
+        target_type: { type: string }
+        target_id: { type: integer, nullable: true }
+        target_label: { type: string }
+        result: { type: string, enum: [ok, denied, error] }
+        ip: { type: string }
+        user_agent: { type: string }
+        request_id: { type: string }
+        detail: { type: string }
+        changes:
+          type: object
+          additionalProperties: { $ref: "#/components/schemas/AuditChange" }
+    Token:
+      type: object
+      required: [id, name, hint, scope, created_at, created_by, expires_at, last_used_at, last_used_ip, revoked_at]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        hint: { type: string }
+        scope: { type: string, enum: [read, write] }
+        created_at: { type: string, format: date-time }
+        created_by: { type: string }
+        expires_at: { type: string, format: date-time, nullable: true }
+        last_used_at: { type: string, format: date-time, nullable: true }
+        last_used_ip: { type: string }
+        revoked_at: { type: string, format: date-time, nullable: true }
+    TokenCreate:
+      type: object
+      required: [name, scope]
+      properties:
+        name: { type: string }
+        scope: { type: string, enum: [read, write] }
+        expires_at: { type: string, format: date-time, nullable: true }
+    TokenSecret:
+      type: object
+      required: [token, secret]
+      properties:
+        token: { $ref: "#/components/schemas/Token" }
+        secret: { type: string }
+    HourCount:
+      type: object
+      required: [hour, sent, failed, rejected]
+      properties:
+        hour: { type: string, format: date-time }
+        sent: { type: integer }
+        failed: { type: integer }
+        rejected: { type: integer }
+    Overview:
+      type: object
+      required: [counts_24h, series, credentials, upstream, certificate, client_settings, version]
+      properties:
+        counts_24h:
+          type: object
+          properties:
+            sent: { type: integer }
+            failed: { type: integer }
+            rejected: { type: integer }
+        series:
+          type: array
+          items: { $ref: "#/components/schemas/HourCount" }
+        credentials:
+          type: object
+          properties:
+            total: { type: integer }
+            active: { type: integer }
+        upstream:
+          type: object
+          properties:
+            addr: { type: string }
+            tls: { type: string }
+            username: { type: string }
+            envelope_from: { type: string }
+        certificate:
+          type: object
+          properties:
+            source: { type: string }
+            label: { type: string }
+            names:
+              type: array
+              items: { type: string }
+            not_after: { type: string, format: date-time, nullable: true }
+            days_left: { type: integer }
+            level: { type: string, enum: [ok, warn, bad] }
+            acme:
+              type: object
+              nullable: true
+              properties:
+                renewing: { type: boolean }
+                ari: { type: boolean }
+                next_check: { type: string, format: date-time, nullable: true }
+                last_error: { type: string }
+        client_settings:
+          type: object
+          properties:
+            hostname: { type: string }
+            submission_port: { type: string }
+            smtps_port: { type: string }
+        version: { type: string }
+    UpstreamTest:
+      type: object
+      required: [ok, message, duration_ms]
+      properties:
+        ok: { type: boolean }
+        message: { type: string }
+        duration_ms: { type: integer }
+security:
+  - cookie: []
+  - bearer: []
+paths:
+  /session:
+    get:
+      summary: Get the current principal
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      summary: Sign out (session only)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  redirect_url: { type: string }
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /overview:
+    get:
+      summary: Get the overview screen data
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Overview" }
+  /upstream/test:
+    post:
+      summary: Test the upstream connection
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpstreamTest" }
+  /certificate/renew:
+    post:
+      summary: Trigger an ACME certificate renewal
+      responses:
+        "202":
+          description: Accepted
+        "404":
+          description: Not found (TLS_SOURCE is not acme)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /credentials:
+    get:
+      summary: List credentials
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Credential" }
+    post:
+      summary: Create a credential
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CredentialCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CredentialSecret" }
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /credentials/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    get:
+      summary: Get a credential
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Credential" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    patch:
+      summary: Update a credential
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CredentialPatch" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Credential" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      summary: Delete a credential
+      responses:
+        "204":
+          description: No content
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /credentials/{id}/rotate:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    post:
+      summary: Rotate a credential's secret
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CredentialSecret" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /messages:
+    get:
+      summary: List messages
+      parameters:
+        - name: credential_id
+          in: query
+          schema: { type: integer }
+        - name: status
+          in: query
+          schema: { type: string, enum: [sent, failed, rejected] }
+        - name: q
+          in: query
+          schema: { type: string }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - name: before
+          in: query
+          schema: { type: integer }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Message" }
+                  next_before: { type: integer, nullable: true }
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /messages/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    get:
+      summary: Get a message with its headers
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MessageDetail" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /audit:
+    get:
+      summary: List audit events
+      parameters:
+        - name: actor
+          in: query
+          schema: { type: string }
+        - name: action
+          in: query
+          schema: { type: string }
+        - name: target_type
+          in: query
+          schema: { type: string }
+        - name: result
+          in: query
+          schema: { type: string, enum: [ok, denied, error] }
+        - name: q
+          in: query
+          schema: { type: string }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - name: before
+          in: query
+          schema: { type: integer }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/AuditEvent" }
+                  next_before: { type: integer, nullable: true }
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /tokens:
+    get:
+      summary: List API tokens (session only)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Token" }
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    post:
+      summary: Create an API token (session only)
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TokenCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenSecret" }
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /tokens/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    delete:
+      summary: Revoke an API token (session only)
+      responses:
+        "204":
+          description: No content
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
