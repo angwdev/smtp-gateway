@@ -2,3 +2,12 @@
 data/
 *.db
 /smtp-gateway
+bin/
+coverage.out
+coverage.html
+ui/node_modules/
+ui/dist/
+ui/test-results/
+ui/shots-out/
+internal/interfaces/http/ui/dist/*
+!internal/interfaces/http/ui/dist/.gitkeep

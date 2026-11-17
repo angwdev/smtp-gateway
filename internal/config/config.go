@@ -7,6 +7,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -14,6 +15,7 @@ import (
 	"time"
 )
 
+// Config holds the gateway's runtime settings, loaded from the environment.
 type Config struct {
 	DataDir string
 
@@ -56,8 +58,15 @@ type Config struct {
 
 	LogRetention time.Duration
 	LogLevel     string
+
+	// Proxies whose X-Forwarded-For header is trusted (IPs or CIDRs).
+	// Empty trusts none: the socket address is the client address.
+	TrustedProxies []string
+	// How much of each message's header block is logged: headers | subject | none.
+	MessageContent string
 }
 
+// Upstream describes the single mail server the gateway relays through.
 type Upstream struct {
 	Host          string
 	Port          int
@@ -85,8 +94,10 @@ type ACME struct {
 	SkipAuthoritative bool
 }
 
-func (u Upstream) Addr() string { return fmt.Sprintf("%s:%d", u.Host, u.Port) }
+// Addr returns the upstream host and port as a dial address.
+func (u Upstream) Addr() string { return fmt.Sprintf("%s:%d", u.Host, u.Port) } //nolint:gocritic // small value type, not worth a pointer receiver
 
+// Load reads the gateway configuration from the environment.
 func Load() (*Config, error) {
 	var errs []error
 	get := func(key, def string) string {
@@ -95,9 +106,16 @@ func Load() (*Config, error) {
 		}
 		return def
 	}
+	// optional is for variables where "set to empty" means "turn this off".
+	optional := func(key, def string) string {
+		if v, ok := os.LookupEnv(key); ok {
+			return clean(v)
+		}
+		return def
+	}
 	secret := func(key string) string {
 		if p := os.Getenv(key + "_FILE"); p != "" {
-			b, err := os.ReadFile(p)
+			b, err := os.ReadFile(p) //nolint:gosec // operator-controlled *_FILE env var, not user input
 			if err != nil {
 				errs = append(errs, fmt.Errorf("%s_FILE: %w", key, err))
 				return ""
@@ -144,8 +162,8 @@ func Load() (*Config, error) {
 	c := &Config{
 		DataDir:           get("DATA_DIR", "/data"),
 		Hostname:          get("SMTP_HOSTNAME", host),
-		SubmissionAddr:    get("SMTP_SUBMISSION_ADDR", ":2587"),
-		SMTPSAddr:         get("SMTP_SMTPS_ADDR", ":2465"),
+		SubmissionAddr:    optional("SMTP_SUBMISSION_ADDR", ":2587"),
+		SMTPSAddr:         optional("SMTP_SMTPS_ADDR", ":2465"),
 		TLSSource:         strings.ToLower(get("TLS_SOURCE", "")),
 		TLSCertFile:       get("TLS_CERT_FILE", ""),
 		TLSKeyFile:        get("TLS_KEY_FILE", ""),
@@ -171,7 +189,7 @@ func Load() (*Config, error) {
 			Timeout:       duration("UPSTREAM_TIMEOUT", time.Minute),
 		},
 
-		WebAddr:           get("WEB_ADDR", ":8080"),
+		WebAddr:           optional("WEB_ADDR", ":8080"),
 		SessionSecret:     secret("SESSION_SECRET"),
 		SessionTTL:        duration("SESSION_TTL", 8*time.Hour),
 		OIDCIssuer:        get("OIDC_ISSUER", ""),
@@ -186,6 +204,9 @@ func Load() (*Config, error) {
 
 		LogRetention: time.Duration(integer("LOG_RETENTION_DAYS", 30)) * 24 * time.Hour,
 		LogLevel:     get("LOG_LEVEL", "info"),
+
+		TrustedProxies: list(get("WEB_TRUSTED_PROXIES", "")),
+		MessageContent: strings.ToLower(get("LOG_MESSAGE_CONTENT", "headers")),
 	}
 	if c.SubmissionAddr == "" {
 		c.PublicSubmissionPort = ""
@@ -280,6 +301,20 @@ func Load() (*Config, error) {
 				errs = append(errs, fmt.Errorf("%s is required when the panel is enabled", k))
 			}
 		}
+	}
+
+	for _, p := range c.TrustedProxies {
+		if _, err := netip.ParsePrefix(p); err == nil {
+			continue
+		}
+		if _, err := netip.ParseAddr(p); err != nil {
+			errs = append(errs, fmt.Errorf("WEB_TRUSTED_PROXIES: %q is not an IP address or CIDR", p))
+		}
+	}
+	switch c.MessageContent {
+	case "headers", "subject", "none":
+	default:
+		errs = append(errs, fmt.Errorf("LOG_MESSAGE_CONTENT must be headers, subject or none (got %q)", c.MessageContent))
 	}
 
 	return c, errors.Join(errs...)

@@ -1,0 +1,11 @@
+#!/bin/sh
+# golangci-lint in a container, sharing the module cache with tools/go.
+set -eu
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/smtp-gateway"
+mkdir -p "$CACHE/mod" "$CACHE/build" "$CACHE/lint"
+exec docker run --rm -u "$(id -u):$(id -g)" \
+  -v "$ROOT":/src -w /src \
+  -v "$CACHE/mod":/go/pkg/mod -v "$CACHE/build":/gocache -v "$CACHE/lint":/lintcache \
+  -e GOCACHE=/gocache -e GOLANGCI_LINT_CACHE=/lintcache -e HOME=/tmp -e GOFLAGS=-buildvcs=false \
+  golangci/golangci-lint:v2.15.0 golangci-lint "$@"

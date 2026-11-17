@@ -1,0 +1,17 @@
+#!/bin/sh
+# Runs the Go toolchain in a container: the build host has no Go installed.
+# A local `go` on PATH is used instead when SMTPGW_LOCAL_GO=1.
+set -eu
+if [ "${SMTPGW_LOCAL_GO:-0}" = "1" ]; then exec go "$@"; fi
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/smtp-gateway"
+# /go/pkg is mounted whole (not just /go/pkg/mod): Docker auto-creates an
+# unmounted /go/pkg/mod mountpoint as root, which blocks the non-root user
+# from writing the sibling /go/pkg/sumdb dir used for sumdb lookups.
+mkdir -p "$CACHE/pkg/mod" "$CACHE/build"
+exec docker run --rm -u "$(id -u):$(id -g)" \
+  -v "$ROOT":/src -w /src \
+  -v "$CACHE/pkg":/go/pkg -v "$CACHE/build":/gocache \
+  -e GOCACHE=/gocache -e HOME=/tmp -e GOFLAGS=-buildvcs=false \
+  -e CGO_ENABLED -e GOOS -e GOARCH -e GOARM \
+  golang:1.26 go "$@"

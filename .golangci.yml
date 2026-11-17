@@ -1,0 +1,83 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: standard   # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - revive
+    - misspell
+    - unconvert
+    - unparam
+    - prealloc
+    - copyloopvar
+    - bodyclose
+    - noctx
+    - sqlclosecheck
+    - gocritic
+    - gosec
+    - errorlint
+    - depguard
+  settings:
+    revive:
+      rules:
+        - name: exported
+          arguments: [checkPrivateReceivers]
+        - name: blank-imports
+        - name: context-as-argument
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: increment-decrement
+        - name: var-naming
+        - name: package-comments
+          disabled: true
+    gocritic:
+      enabled-tags: [diagnostic, style, performance]
+    gosec:
+      excludes:
+        - G104   # unhandled errors: covered by errcheck
+    depguard:
+      rules:
+        domain:
+          files: ["**/internal/domain/**"]
+          deny:
+            - { pkg: "github.com/angwdev/smtp-gateway/internal/application", desc: "domain must not import application" }
+            - { pkg: "github.com/angwdev/smtp-gateway/internal/infrastructure", desc: "domain must not import infrastructure" }
+            - { pkg: "github.com/angwdev/smtp-gateway/internal/interfaces", desc: "domain must not import interfaces" }
+            - { pkg: "gorm.io", desc: "domain is framework-free" }
+            - { pkg: "github.com/gin-gonic", desc: "domain is framework-free" }
+        application:
+          # Excludes _test.go: the Task 8.1 benchmarks open a real SQLite
+          # database (plan section "Benchmarks for the hot paths") because a
+          # benchmark against a mock proves nothing about the hot path; the
+          # dependency rule still applies to every production file.
+          files: ["**/internal/application/**", "!$test"]
+          deny:
+            - { pkg: "github.com/angwdev/smtp-gateway/internal/infrastructure", desc: "application depends on domain interfaces only" }
+            - { pkg: "github.com/angwdev/smtp-gateway/internal/interfaces", desc: "application must not import interfaces" }
+            - { pkg: "gorm.io", desc: "persistence belongs to infrastructure" }
+            - { pkg: "github.com/gin-gonic", desc: "HTTP belongs to interfaces" }
+        infrastructure:
+          files: ["**/internal/infrastructure/**"]
+          deny:
+            - { pkg: "github.com/angwdev/smtp-gateway/internal/application", desc: "infrastructure implements domain interfaces" }
+            - { pkg: "github.com/angwdev/smtp-gateway/internal/interfaces", desc: "infrastructure must not import interfaces" }
+  exclusions:
+    generated: lax
+    rules:
+      - path: _test\.go
+        linters: [gosec, errcheck, noctx, unparam, bodyclose]
+      # Moved v1 code: keep correctness linters, skip style churn.
+      - path: internal/infrastructure/(acme|tlsutil)/
+        linters: [revive, gocritic, prealloc, unparam]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes: [github.com/angwdev/smtp-gateway]

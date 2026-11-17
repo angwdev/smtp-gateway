@@ -1,0 +1,26 @@
+#!/bin/sh
+# Runs the built binary with the panel on 127.0.0.1:18080 for browser smoke tests.
+# Usage: tools/smoke start | stop
+set -eu
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+NAME=smtp-gateway-smoke
+case "${1:-}" in
+  start)
+    # Scratch-only data dir: never /opt/smtp-gateway, never the live gateway-data.
+    DATA="$(mktemp -d -p "${TMPDIR:-/home/ubuntu/.hermes/cache/scratch}")"; chmod 777 "$DATA"
+    docker rm -f "$NAME" >/dev/null 2>&1 || true
+    docker run -d --name "$NAME" --read-only --tmpfs /tmp -u 65532:65532 \
+      -p 127.0.0.1:18080:8080 -v "$ROOT/bin":/app:ro -v "$DATA":/data \
+      -e DATA_DIR=/data -e UPSTREAM_HOST=127.0.0.1 -e UPSTREAM_PORT=1 -e UPSTREAM_TLS=none \
+      -e SMTP_HOSTNAME=smoke.test -e TLS_SOURCE=self-signed \
+      -e PUBLIC_URL=http://127.0.0.1:18080 -e OIDC_ISSUER=http://127.0.0.1:9 \
+      -e OIDC_CLIENT_ID=smoke -e OIDC_CLIENT_SECRET=smoke -e OIDC_ALLOWED_EMAILS=smoke@example.com \
+      --entrypoint /app/smtp-gateway alpine:3 serve >/dev/null
+    for i in $(seq 1 30); do
+      if curl -fsS http://127.0.0.1:18080/healthz >/dev/null 2>&1; then echo "ready"; exit 0; fi
+      sleep 0.5
+    done
+    docker logs "$NAME"; echo "smoke server did not become healthy" >&2; exit 1 ;;
+  stop) docker rm -f "$NAME" >/dev/null 2>&1 || true ;;
+  *) echo "usage: tools/smoke start|stop" >&2; exit 2 ;;
+esac
