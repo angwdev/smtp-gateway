@@ -50,7 +50,11 @@ linters:
             - { pkg: "gorm.io", desc: "domain is framework-free" }
             - { pkg: "github.com/gin-gonic", desc: "domain is framework-free" }
         application:
-          files: ["**/internal/application/**"]
+          # Excludes _test.go: the Task 8.1 benchmarks open a real SQLite
+          # database (plan section "Benchmarks for the hot paths") because a
+          # benchmark against a mock proves nothing about the hot path; the
+          # dependency rule still applies to every production file.
+          files: ["**/internal/application/**", "!$test"]
           deny:
             - { pkg: "github.com/angwdev/smtp-gateway/internal/infrastructure", desc: "application depends on domain interfaces only" }
             - { pkg: "github.com/angwdev/smtp-gateway/internal/interfaces", desc: "application must not import interfaces" }
