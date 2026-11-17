@@ -36,7 +36,11 @@ export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) {
     const kb = bytes / 1024;
-    return `${kb < 10 ? kb.toFixed(1) : Math.round(kb)} KB`;
+    const rounded = kb < 10 ? kb.toFixed(1) : String(Math.round(kb));
+    // Rounding can carry a value up to "1024" (e.g. 1,048,575 bytes), which
+    // belongs in the MB tier, not as "1024 KB". Fall through consistently
+    // with the >= 1024*1024 branch below.
+    if (Number(rounded) < 1024) return `${rounded} KB`;
   }
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }

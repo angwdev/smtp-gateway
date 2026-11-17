@@ -59,6 +59,12 @@ describe('formatSize', () => {
     [1536, '1.5 KB'],
     [43867, '43 KB'],
     [5242880, '5.0 MB'],
+    [1023, '1023 B'],
+    [1024, '1.0 KB'],
+    [1047552, '1023 KB'],
+    // 1,048,575 rounds to 1024 KB before the MB check; must carry into MB.
+    [1048575, '1.0 MB'],
+    [1048576, '1.0 MB'],
   ])('%d -> %s', (input, expected) => {
     expect(formatSize(input)).toBe(expected);
   });
