@@ -9,16 +9,27 @@ server gets its own SMTP login, which you create in an SSO-protected web panel. 
 gateway checks that login, applies per-login policy, and relays the mail to your real
 mail server using **one** upstream credential.
 
-```
- Nextcloud ─┐  user: nextcloud / pw: …                     ┌───────────────────────┐
- Grafana  ──┼─ user: grafana   / pw: …  ──►  SMTP Gateway  ──►  mail.example.com:587 │
- Backups  ──┘  user: backups   / pw: …      (checks login,   │  user: relay@example.com
-                                             sender, rate)   └───────────────────────┘
-                       ▲
-         Panel (OIDC SSO): create / rotate / disable logins, message log, audit log
+```mermaid
+flowchart LR
+    subgraph clients["Apps and devices, one login each"]
+        nc["Nextcloud<br/>login: nextcloud"]
+        gr["Grafana<br/>login: grafana"]
+        bk["Backups<br/>login: backups"]
+    end
+    gw["SMTP Gateway<br/>checks login, sender and rate<br/>logs every message"]
+    up["Your mail server<br/>mail.example.com:587<br/>one account: relay@example.com"]
+    db[("SQLite<br/>logins, message log,<br/>audit log")]
+    admin(["Administrator"])
+    script(["Scripts"])
+
+    clients -->|SMTP, 587 STARTTLS or 465 TLS| gw
+    gw -->|SMTP with the one upstream login| up
+    gw --- db
+    admin -->|Panel, OIDC sign-in| gw
+    script -->|JSON API, bearer token| gw
 ```
 
-- One static Go binary in a `scratch` image (about 8 MB compressed). It typically uses
+- One static Go binary in a `scratch` image (about 11 MB compressed). It typically uses
   under 25 MB of RAM and almost no CPU when idle.
 - Mail is **streamed** to the upstream server and never queued on disk. The client
   gets the upstream's own reply, so a message is either accepted by your mail server
@@ -117,7 +128,7 @@ attestation (`gh attestation verify oci://ghcr.io/angwdev/smtp-gateway:latest -R
 2. **Expose the panel** (container port 8080, bound to `127.0.0.1:8080` by default)
    through your reverse proxy at `PUBLIC_URL`. Example for Caddy:
    `smtp-panel.example.com { reverse_proxy 127.0.0.1:8080 }`.
-3. **Sign in**, click **New credential** and copy the password shown.
+3. **Sign in**, open **Logins**, click **New login** and copy the password shown.
 4. **Point your clients** at the gateway: host = `SMTP_HOSTNAME`, port 587 (STARTTLS)
    or 465 (SSL/TLS), with the username and password you just created.
 
@@ -174,7 +185,7 @@ How it behaves:
 - **State** lives in `/data/acme/`: the account key (per CA) and the current
   certificate. Changing `ACME_DOMAINS`, `ACME_CA` or `ACME_KEY_TYPE` triggers a new
   order on the next start.
-- **Panel**: the Certificate card shows the issuer, expiry, renewal schedule and
+- **Panel**: the Certificate section on Overview shows the issuer, expiry, renewal schedule and
   the last error, and has a **Renew now** button.
 - **Debugging**: with `LOG_LEVEL=debug`, every failed propagation check is logged
   with its reason. Set `ACME_DNS_SKIP_AUTHORITATIVE=true` if your network blocks
@@ -258,6 +269,35 @@ sign in. A warning is logged at startup in that case.
 
 ## How a message flows
 
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as App
+    participant G as SMTP Gateway
+    participant DB as SQLite
+    participant U as Mail server
+    C->>G: STARTTLS or implicit TLS, then AUTH PLAIN or LOGIN
+    G->>DB: Find the login, compare the SHA-256 hash
+    G-->>C: 235 accepted, or 535 (counts toward the IP lockout)
+    C->>G: MAIL FROM
+    G->>DB: Re-read the login: enabled, sender allowed, hourly rate
+    G->>U: Connect or reuse, AUTH with the upstream login, MAIL FROM
+    U-->>G: 250
+    G-->>C: 250
+    loop Every recipient
+        C->>G: RCPT TO
+        G->>U: RCPT TO
+        U-->>G: Reply
+        G-->>C: Same reply, unchanged
+    end
+    C->>G: DATA
+    G->>G: Read the header block, check From: against the sender policy
+    G->>U: Stream the message, nothing is written to disk
+    U-->>G: 250 Ok: queued as 4F1A
+    G->>DB: Log envelope, subject and headers in one transaction
+    G-->>C: The upstream's final reply
+```
+
 1. The client connects and authenticates (STARTTLS/TLS, then AUTH PLAIN or LOGIN).
    The password is checked against a SHA-256 hash in SQLite. Passwords are always
    random 190-bit secrets, so a fast hash is safe here, just like with API tokens.
@@ -289,6 +329,26 @@ repo at [`api/openapi.yaml`](api/openapi.yaml)).
    curl -H "Authorization: Bearer sgw_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
         https://smtp-panel.example.com/api/v1/messages?limit=5
    ```
+
+**How a request is checked**, in order:
+
+```mermaid
+flowchart TD
+    req["Request to /api/v1"] --> co{"Unsafe cross-origin<br/>browser request?"}
+    co -->|yes| e403a["403"]
+    co -->|no| rl{"More than 20 per second<br/>from this IP?"}
+    rl -->|yes| e429["429 RATE_LIMITED"]
+    rl -->|no| bearer{"Authorization:<br/>Bearer sgw_...?"}
+    bearer -->|yes| tok{"Token known, not expired,<br/>not revoked?"}
+    tok -->|no| e401t["401 and token.auth_failed<br/>repeated failures from one IP: 429"]
+    tok -->|yes| scope
+    bearer -->|no| cookie{"Session cookie matches<br/>a server-side session?"}
+    cookie -->|no| e401["401 UNAUTHORIZED"]
+    cookie -->|yes| scope{"Scope allows<br/>this route?"}
+    scope -->|no| e403["403 FORBIDDEN"]
+    scope -->|yes| handler["Handler"]
+    handler --> audit["Audit row: the specific action,<br/>or api.call for any other token request"]
+```
 
 **Scopes:**
 
@@ -375,6 +435,36 @@ Left empty (the default), `X-Forwarded-For` is never read, so a client can't spo
 its IP by sending that header directly — the socket address is always used
 instead. Only widen this to networks you actually trust.
 
+## Panel sign-in
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor B as Browser
+    participant G as SMTP Gateway
+    participant I as Identity provider
+    participant DB as SQLite
+    B->>G: GET /login
+    G-->>B: Redirect to the provider with state, nonce and a PKCE challenge
+    B->>I: Sign in
+    I-->>B: Redirect to /auth/callback with a code
+    B->>G: GET /auth/callback
+    G->>I: Exchange the code with the PKCE verifier
+    I-->>G: ID token: e-mail, email_verified, groups
+    G->>G: Check OIDC_ALLOWED_EMAILS and OIDC_ALLOWED_GROUPS
+    alt Allowed
+        G->>DB: Store a session (only the SHA-256 of its id) and audit session.login
+        G-->>B: Session cookie, open the panel
+    else Not allowed
+        G->>DB: Audit session.login_denied
+        G-->>B: Page explaining why
+    end
+```
+
+Signing out deletes the session row, so a copied cookie stops working at once.
+The cookie is `__Host-sg_session` (`sg_session` when `PUBLIC_URL` is plain
+http), `HttpOnly`, `Secure` and `SameSite=Lax`.
+
 ## Troubleshooting sign-in
 
 At startup the gateway logs the exact values it will send to your identity
@@ -440,6 +530,85 @@ cd ui && bun run shots              # screenshot suite (phone/tablet/desktop, li
 go install github.com/letsencrypt/pebble/v2/cmd/pebble@v2.10.1
 go install github.com/letsencrypt/pebble/v2/cmd/pebble-challtestsrv@v2.10.1
 ```
+
+### Code layout
+
+The Go code follows a layered (domain-driven) layout. Each arrow is an allowed
+import; the `depguard` linter rejects any other direction, and only
+`internal/app` wires everything together.
+
+```mermaid
+flowchart TD
+    main["cmd/smtp-gateway<br/>subcommands"] --> app["internal/app<br/>composition root"]
+    app --> ifaces & appl & infra & dom
+    ifaces["internal/interfaces<br/>SMTP server, Gin HTTP API,<br/>SPA serving, limiters"] --> appl["internal/application<br/>use cases, audit recorder,<br/>maintenance loop"]
+    appl --> dom["internal/domain<br/>entities, rules, repository<br/>interfaces (standard library only)"]
+    infra["internal/infrastructure<br/>GORM repositories, Goose migrations,<br/>upstream client, TLS, ACME"] --> dom
+```
+
+The panel is a React app in `ui/` (Vite, MUI and Tailwind), built into
+`internal/interfaces/http/ui/dist` and embedded in the binary.
+
+### Data model
+
+SQLite in WAL mode, with one writer connection and a small read pool. Goose owns
+the schema (`migrations/`).
+
+```mermaid
+erDiagram
+    credentials |o--o{ messages : "sent with (kept if the login is deleted)"
+    messages ||--o| message_headers : "header block"
+    credentials {
+        int id PK
+        text username UK
+        text secret_hash "SHA-256"
+        text allowed_senders
+        int rate_per_hour
+        int enabled
+        int sent_count
+    }
+    messages {
+        int id PK
+        int credential_id FK
+        text mail_from
+        text rcpt_to
+        text status "sent, rejected or failed"
+        text subject
+    }
+    message_headers {
+        int message_id PK
+        text raw "up to 16 KiB"
+        int truncated
+    }
+    audit_events {
+        int id PK
+        text actor_type "user, token, cli, system or smtp"
+        text action
+        text target_label
+        text result "ok, denied or error"
+        text ip
+        text changes "JSON before and after"
+    }
+    api_tokens {
+        int id PK
+        text name UK
+        text token_hash UK "SHA-256"
+        text scope "read or write"
+        int expires_at
+        int revoked_at
+    }
+    sessions {
+        text id_hash PK "SHA-256"
+        text email
+        int expires_at
+    }
+    settings {
+        text key PK
+        text value
+    }
+```
+
+### Toolchain
 
 Go runs through `tools/go`, a thin wrapper around a `golang:1.26` container (the
 build host needs no local Go install); set `SMTPGW_LOCAL_GO=1` to use a local
