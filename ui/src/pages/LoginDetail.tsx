@@ -104,7 +104,7 @@ export function LoginDetail() {
                 <MessageRow key={m.id} message={m} />
               ))}
             </ul>
-            <Link to={`/messages?credential_id=${credentialId}`} className="mt-3 inline-block">All messages from this login</Link>
+            <Link to={`/messages?credential_id=${credentialId}`} className="mt-3 inline-flex min-h-11 items-center">All messages from this login</Link>
           </>
         ) : (
           <p className="text-ink2">Nothing sent with this login yet.</p>

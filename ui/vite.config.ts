@@ -20,7 +20,16 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': 'http://127.0.0.1:18080',
-      '/login': 'http://127.0.0.1:18080',
+      // A plain string match is a prefix match, which would also catch the
+      // SPA's own /logins routes; bypass back to Vite for anything that
+      // isn't exactly the OIDC sign-in page.
+      '/login': {
+        target: 'http://127.0.0.1:18080',
+        bypass: (req) => {
+          if (req.url !== '/login' && !req.url?.startsWith('/login?')) return req.url;
+          return undefined;
+        },
+      },
       '/auth': 'http://127.0.0.1:18080',
     },
   },

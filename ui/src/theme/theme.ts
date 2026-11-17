@@ -49,5 +49,26 @@ export const theme = createTheme({
       },
     },
     MuiTooltip: { defaultProps: { arrow: false } },
+    MuiToggleButton: {
+      styleOverrides: {
+        // The default unselected text blends text.secondary with reduced
+        // opacity, which fails WCAG AA (4.48:1) on the paper background.
+        // Full-opacity ink2/ink keep both states above 4.5:1.
+        root: {
+          color: 'var(--sg-ink2)',
+          minHeight: 44,
+          minWidth: 44,
+          '&.Mui-selected': { color: 'var(--sg-ink)' },
+        },
+      },
+    },
+    MuiSwitch: {
+      styleOverrides: {
+        // MUI already extends the invisible hit-target input horizontally
+        // (width 300%, left -100%); extend it vertically the same way so
+        // the real target meets the 44px minimum (the drawn track stays put).
+        input: { height: '300%', top: '-100%' },
+      },
+    },
   },
 });

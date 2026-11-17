@@ -1,8 +1,13 @@
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
+import { useEffect } from 'react';
 
 export function SignedOut() {
   const error = new URLSearchParams(window.location.hash.slice(1)).get('error');
+
+  useEffect(() => {
+    document.title = `${error ? 'Sign-in did not work' : "You're signed out"} · SMTP Gateway`;
+  }, [error]);
 
   if (error) {
     return (

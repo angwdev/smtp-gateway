@@ -147,7 +147,7 @@ export function Overview() {
             items={[
               {
                 label: 'Server',
-                value: <span className="inline-flex items-center gap-2"><Mono>{data.client_settings.hostname}</Mono><CopyButton value={data.client_settings.hostname} label="Copy server" /></span>,
+                value: <span className="flex min-w-0 flex-wrap items-center gap-2"><Mono className="min-w-0">{data.client_settings.hostname}</Mono><CopyButton value={data.client_settings.hostname} label="Copy server" /></span>,
               },
               ...(data.client_settings.submission_port
                 ? [{ label: 'Port with STARTTLS', value: <Mono>{data.client_settings.submission_port}</Mono> }]
