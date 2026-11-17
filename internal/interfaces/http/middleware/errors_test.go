@@ -33,6 +33,7 @@ func TestTranslate(t *testing.T) {
 		{"unauthorized", shared.ErrUnauthorized, 401, response.CodeUnauthorized, nil},
 		{"forbidden", shared.ErrForbidden, 403, response.CodeForbidden, nil},
 		{"rate limited", shared.ErrRateLimited, 429, response.CodeRateLimited, nil},
+		{"rate limited with a window", shared.RateLimited(60), 429, response.CodeRateLimited, nil},
 		{"anything else", errors.New("disk on fire"), 500, response.CodeInternal, nil},
 	}
 	for _, tt := range tests {
@@ -52,6 +53,8 @@ func TestErrorHandlerWritesOnce(t *testing.T) {
 	r.Use(RequestID(), ErrorHandler(slog.New(slog.NewTextHandler(&logs, nil))))
 	r.GET("/missing", func(c *gin.Context) { Fail(c, shared.ErrNotFound) })
 	r.GET("/broken", func(c *gin.Context) { Fail(c, errors.New("disk on fire")) })
+	r.GET("/limited", func(c *gin.Context) { Fail(c, shared.ErrRateLimited) })
+	r.GET("/limited-60", func(c *gin.Context) { Fail(c, shared.RateLimited(60)) })
 
 	w := do(r, http.MethodGet, "/missing", nil)
 	assert.Equal(t, 404, w.Code)
@@ -62,4 +65,12 @@ func TestErrorHandlerWritesOnce(t *testing.T) {
 	assert.Equal(t, 500, w.Code)
 	assert.Contains(t, logs.String(), "disk on fire")
 	assert.NotContains(t, w.Body.String(), "disk on fire")
+
+	w = do(r, http.MethodGet, "/limited", nil)
+	assert.Equal(t, 429, w.Code)
+	assert.Equal(t, "1", w.Header().Get("Retry-After"), "bare ErrRateLimited falls back to the 1-second default")
+
+	w = do(r, http.MethodGet, "/limited-60", nil)
+	assert.Equal(t, 429, w.Code)
+	assert.Equal(t, "60", w.Header().Get("Retry-After"), "a RateLimitedError advertises its own window")
 }

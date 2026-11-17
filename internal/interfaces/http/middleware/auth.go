@@ -79,6 +79,12 @@ func Authenticate(sessions SessionResolver, tokens TokenAuthenticator, auditor N
 
 		if raw, ok := bearer(c.GetHeader("Authorization")); ok {
 			if fails.Blocked(ip) {
+				// Retry-After is left at the ErrorHandler's 1-second
+				// default here: the brute-force window is runtime config
+				// (cfg.AuthFailWindow), not a value this middleware is
+				// built with, so threading it through would need a new
+				// constructor parameter for a hint of marginal value (a
+				// blocked caller gets 429 again immediately regardless).
 				Fail(c, shared.ErrRateLimited)
 				return
 			}

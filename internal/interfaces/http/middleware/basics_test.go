@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"bytes"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// brokenReader always fails, so it stands in for crypto/rand on a machine
+// out of entropy.
+type brokenReader struct{}
+
+func (brokenReader) Read([]byte) (int, error) { return 0, errors.New("no entropy") }
 
 func init() { gin.SetMode(gin.TestMode) }
 
@@ -61,6 +68,18 @@ func TestBasics(t *testing.T) {
 		plain.Use(SecurityHeaders(false))
 		plain.GET("/", func(c *gin.Context) { c.Status(http.StatusNoContent) })
 		assert.Empty(t, do(plain, http.MethodGet, "/", nil).Header().Get("Strict-Transport-Security"))
+	})
+
+	t.Run("fails closed with a 500 when the nonce cannot be generated", func(t *testing.T) {
+		broken := gin.New()
+		broken.Use(securityHeaders(true, brokenReader{}))
+		called := false
+		broken.GET("/", func(c *gin.Context) { called = true; c.Status(http.StatusOK) })
+		w := do(broken, http.MethodGet, "/", nil)
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
+		assert.JSONEq(t, `{"code":"INTERNAL_ERROR","message":"An internal error occurred."}`, w.Body.String())
+		assert.False(t, called, "the handler must not run with no nonce")
+		assert.Empty(t, w.Header().Get("Content-Security-Policy"), "no CSP header with a weak or missing nonce")
 	})
 
 	t.Run("a panic becomes a JSON 500 and is logged with its request id", func(t *testing.T) {

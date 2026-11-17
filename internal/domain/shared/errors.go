@@ -26,3 +26,21 @@ func (e *ValidationError) Error() string { return "invalid " + e.Field + ": " + 
 
 // Invalid builds a ValidationError.
 func Invalid(field, message string) error { return &ValidationError{Field: field, Message: message} }
+
+// RateLimitedError is ErrRateLimited plus how long the client should wait
+// before trying again, when the limiter that rejected the request has a
+// known, fixed window (e.g. the 10-per-minute login limiter). Callers that
+// cannot cheaply learn their window keep returning the bare ErrRateLimited
+// sentinel; the HTTP layer then falls back to a conservative default.
+type RateLimitedError struct {
+	RetrySeconds int
+}
+
+func (e *RateLimitedError) Error() string { return "rate limited" }
+
+// Unwrap lets errors.Is(err, ErrRateLimited) keep working for callers that
+// only care about the sentinel, not the retry hint.
+func (e *RateLimitedError) Unwrap() error { return ErrRateLimited }
+
+// RateLimited builds a RateLimitedError carrying the limiter's window.
+func RateLimited(retrySeconds int) error { return &RateLimitedError{RetrySeconds: retrySeconds} }

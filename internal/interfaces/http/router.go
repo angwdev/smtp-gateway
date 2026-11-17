@@ -79,7 +79,10 @@ func NewRouter(d Deps) (*gin.Engine, error) {
 	r.Use(middleware.RequestID(), middleware.Logger(d.Log), middleware.Recovery(d.Log), middleware.SecurityHeaders(https))
 
 	r.GET("/healthz", d.System.Health)
-	auth := r.Group("", middleware.ErrorHandler(d.Log), middleware.RateLimit(d.AuthLimiter))
+	// Login limiter is 10 requests/minute per IP; tell the client the
+	// matching worst-case wait instead of the generic default.
+	const loginRetryAfterSeconds = 60
+	auth := r.Group("", middleware.ErrorHandler(d.Log), middleware.RateLimit(d.AuthLimiter, loginRetryAfterSeconds))
 	auth.GET("/login", d.OIDC.Login)
 	auth.GET("/auth/callback", d.OIDC.Callback)
 
@@ -91,7 +94,10 @@ func NewRouter(d Deps) (*gin.Engine, error) {
 			c.Next()
 		},
 		middleware.CrossOrigin(),
-		middleware.RateLimit(d.APILimiter),
+		// 20 requests/s, burst 60: a 1-second retry (the ErrorHandler
+		// default) already matches this limiter's refill rate closely
+		// enough that it is not worth a precise per-bucket calculation.
+		middleware.RateLimit(d.APILimiter, 1),
 	)
 	api.GET("/openapi.yaml", d.System.OpenAPI)
 

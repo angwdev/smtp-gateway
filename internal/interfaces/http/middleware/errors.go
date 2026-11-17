@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -37,7 +38,12 @@ func ErrorHandler(log *slog.Logger) gin.HandlerFunc {
 			log.Error("request failed", "err", err, "request_id", RequestIDOf(c), "path", c.Request.URL.Path)
 		}
 		if status == http.StatusTooManyRequests {
-			c.Header("Retry-After", "1")
+			retryAfter := 1 // conservative default when the limiter's window is not known here
+			var rateLimited *shared.RateLimitedError
+			if errors.As(err, &rateLimited) && rateLimited.RetrySeconds > 0 {
+				retryAfter = rateLimited.RetrySeconds
+			}
+			c.Header("Retry-After", strconv.Itoa(retryAfter))
 		}
 		c.JSON(status, body)
 	}

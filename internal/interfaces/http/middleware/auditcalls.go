@@ -15,7 +15,9 @@ func MarkAudited(c *gin.Context) { c.Set(keyAudited, true) }
 
 // AuditCalls records every API-token request that did not produce a more
 // specific audit event, so that each call made with a token leaves a trace.
-// It must be registered after Authenticate.
+// It must be registered after Authenticate (it reads the principal that
+// Authenticate sets) and before any handler whose RequireScope/RequireSession
+// guard might abort the request, so even rejected calls get one audit row.
 func AuditCalls(auditor NoisyAuditor) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Next()

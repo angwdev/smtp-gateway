@@ -61,7 +61,7 @@ func TestCrossOrigin(t *testing.T) {
 func TestRateLimit(t *testing.T) {
 	r := gin.New()
 	r.Use(ErrorHandler(slog.New(slog.NewTextHandler(discardWriter{}, nil))))
-	r.Use(RateLimit(limiter.NewPerIP(1, 2)))
+	r.Use(RateLimit(limiter.NewPerIP(1, 2), 1))
 	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, "/x", nil).Code)
@@ -70,6 +70,18 @@ func TestRateLimit(t *testing.T) {
 	assert.Equal(t, http.StatusTooManyRequests, w.Code)
 	assert.Equal(t, "1", w.Header().Get("Retry-After"))
 	assert.Contains(t, w.Body.String(), response.CodeRateLimited)
+}
+
+func TestRateLimitAdvertisesItsWindow(t *testing.T) {
+	r := gin.New()
+	r.Use(ErrorHandler(slog.New(slog.NewTextHandler(discardWriter{}, nil))))
+	r.Use(RateLimit(limiter.NewPerIP(1, 1), 60))
+	r.GET("/login", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, "/login", nil).Code)
+	w := do(r, http.MethodGet, "/login", nil)
+	assert.Equal(t, http.StatusTooManyRequests, w.Code)
+	assert.Equal(t, "60", w.Header().Get("Retry-After"), "a limiter with a known window advertises it")
 }
 
 func auditCallsRouter(auditor NoisyAuditor, principal *Principal, handler gin.HandlerFunc) *gin.Engine {
