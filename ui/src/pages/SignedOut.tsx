@@ -1,6 +1,7 @@
-import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import { useEffect } from 'react';
+
+import { Notice } from '../components/Notice';
 
 export function SignedOut() {
   const error = new URLSearchParams(window.location.hash.slice(1)).get('error');
@@ -13,7 +14,7 @@ export function SignedOut() {
     return (
       <div className="mx-auto max-w-prose p-6">
         <h1 className="text-2xl font-semibold">Sign-in did not work</h1>
-        <Alert className="mt-4" severity="error">{error}</Alert>
+        <Notice kind="error" className="mt-4">{error}</Notice>
         <Button className="mt-4" variant="contained" component="a" nativeButton={false} href="/login">
           Try again
         </Button>

@@ -1,4 +1,3 @@
-import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
@@ -8,6 +7,8 @@ import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import type { ReactNode } from 'react';
 import { useEffect, useRef } from 'react';
+
+import { Notice } from './Notice';
 
 export interface ConfirmDialogProps {
   open: boolean;
@@ -52,7 +53,7 @@ export function ConfirmDialog({
       <DialogTitle>{title}</DialogTitle>
       <DialogContent>
         {children}
-        {error && <Alert severity="error" className="mt-3">{error}</Alert>}
+        {error && <Notice kind="error" className="mt-3">{error}</Notice>}
       </DialogContent>
       <DialogActions>
         <Button ref={cancelRef} variant="text" onClick={onClose} disabled={busy}>Cancel</Button>

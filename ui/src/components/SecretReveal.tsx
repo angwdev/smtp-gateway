@@ -1,8 +1,8 @@
-import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import type { ReactNode } from 'react';
 
 import { CopyButton } from './CopyButton';
+import { Notice } from './Notice';
 
 export interface SecretRevealProps {
   title: string;
@@ -17,9 +17,9 @@ export function SecretReveal({ title, secret, children, copyLabel = 'Copy passwo
   return (
     <div>
       <h2 className="text-lg font-semibold">{title}</h2>
-      <Alert severity="warning" className="mt-3">
+      <Notice kind="warning" className="mt-3">
         This is shown once. Copy it now: it cannot be shown again.
-      </Alert>
+      </Notice>
       <div className="mt-3 select-all break-all border border-hairline bg-sunken p-4 font-mono text-lg">{secret}</div>
       <div className="mt-3">
         <CopyButton value={secret} label={copyLabel} />

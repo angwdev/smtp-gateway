@@ -22,7 +22,7 @@
 | `failed` | `#a51d2b` | `#fe8a88` | result: failed at the upstream; also destructive actions |
 | `focus` | `#0053a5` | `#87bafd` | focus ring, 2px, offset 2px. Blue on purpose: it must not be confused with the accent |
 
-The three result colours appear only on a result (a status mark, a chart bar, a count). Nothing else is green or amber.
+The three result colours appear only on a result (a status mark, a chart bar, a count). Nothing else is green or amber. In practice that means: `StatusMark`, the hour chart and the three Overview counts, plus a message's own detail Alert on its `MessageDetail` page (the colour of *that* message's result). Every other confirmation, warning or error — a saved notice, the secret-reveal warning, a sign-out or form error, the upstream connectivity test, a certificate-renewal note, a full page-load failure — is not a result and uses the neutral `Notice` component (ink text on `sunken`, a hairline border, an icon and words) regardless of severity, including for errors: `failed` stays reserved for a delivery result and for destructive-action buttons, not for every red alert.
 
 *Type.* `Atkinson Hyperlegible Next Variable` for everything; `Atkinson Hyperlegible Mono Variable` for addresses, IP addresses, host names, ports, secrets, raw headers and the times in log rows. Sizes (rem): 0.8125 caption, 0.875 secondary, 1 body, 1.125 section heading, 1.5 page title (1.75 from `lg`). Weights: 400 body, 600 headings and the active nav item, 700 only for the three big counts on Overview. Line height 1.5 body, 1.25 headings. Numbers in tables use `font-variant-numeric: tabular-nums` (Tailwind `tabular-nums`). Line length of prose at most 68 characters (`max-w-prose`).
 

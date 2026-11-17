@@ -1,6 +1,5 @@
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import WarningAmberIcon from '@mui/icons-material/WarningAmberOutlined';
-import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import { Link } from 'react-router';
 
@@ -11,6 +10,7 @@ import { Empty, Failure, Loading } from '../components/States';
 import { Facts } from '../components/Facts';
 import { HourBars } from '../components/HourBars';
 import { Mono } from '../components/Mono';
+import { Notice } from '../components/Notice';
 import { PageHeader } from '../components/PageHeader';
 import { Section } from '../components/Section';
 import { StatusMark } from '../components/StatusMark';
@@ -97,12 +97,12 @@ export function Overview() {
             Test connection
           </Button>
           {testUpstream.data && (
-            <Alert severity={testUpstream.data.ok ? 'success' : 'error'} className="mt-3">{testUpstream.data.message}</Alert>
+            <Notice kind={testUpstream.data.ok ? 'success' : 'error'} className="mt-3">{testUpstream.data.message}</Notice>
           )}
           {testUpstream.isError && (
-            <Alert severity="error" className="mt-3">
+            <Notice kind="error" className="mt-3">
               {testUpstream.error instanceof ApiError ? testUpstream.error.message : 'Something went wrong on the gateway.'}
-            </Alert>
+            </Notice>
           )}
         </Section>
 
@@ -123,7 +123,7 @@ export function Overview() {
             ]}
           />
           {cert.acme && cert.acme.last_error && (
-            <Alert severity="error" className="mt-3">{cert.acme.last_error}</Alert>
+            <Notice kind="error" className="mt-3">{cert.acme.last_error}</Notice>
           )}
           {cert.acme && (
             <>
@@ -136,7 +136,7 @@ export function Overview() {
                 {cert.acme.renewing ? 'Renewal is running…' : 'Renew now'}
               </Button>
               {renewCertificate.isSuccess && (
-                <Alert severity="info" className="mt-3">Renewal started. This can take a few minutes.</Alert>
+                <Notice kind="info" className="mt-3">Renewal started. This can take a few minutes.</Notice>
               )}
             </>
           )}

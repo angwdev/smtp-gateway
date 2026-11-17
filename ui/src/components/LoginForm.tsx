@@ -1,13 +1,13 @@
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Switch from '@mui/material/Switch';
 import TextField from '@mui/material/TextField';
-import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 
 import type { ApiError } from '../api/client';
 import type { CredentialCreate, CredentialPatch } from '../api/types';
+import { Notice } from './Notice';
 
 export interface LoginFormValues {
   username: string;
@@ -125,7 +125,7 @@ export function LoginForm({ mode, initial, busy, error, onSubmit, cancelTo }: Lo
         label="Turned on"
       />
       <p className="text-sm text-ink2">When off, sign-in is refused and nothing is sent.</p>
-      {error && !error.field && <Alert severity="error">{error.message}</Alert>}
+      {error && !error.field && <Notice kind="error">{error.message}</Notice>}
       <div className="flex items-center gap-3">
         <Button type="submit" variant="contained" loading={busy} disabled={mode === 'edit' && !changed}>
           {mode === 'new' ? 'Create login' : 'Save changes'}

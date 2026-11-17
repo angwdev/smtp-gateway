@@ -1,10 +1,10 @@
-import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, Suspense } from 'react';
 import { Link, Outlet, useLocation } from 'react-router';
 
 import { useSession, useSignOut } from '../api/hooks';
+import { Notice } from '../components/Notice';
 import { NAV, isActive } from './nav';
 import { ThemeSwitch } from './ThemeSwitch';
 
@@ -88,7 +88,7 @@ export function Shell() {
 
         <main id="main" tabIndex={-1} className="mx-auto w-full max-w-[1120px] px-4 pb-24 pt-6 sm:px-6 lg:px-8 lg:pb-12">
           {signOutAction.error && (
-            <Alert severity="error" className="mb-6" role="alert">{signOutAction.error.message}</Alert>
+            <Notice kind="error" className="mb-6">{signOutAction.error.message}</Notice>
           )}
           <Suspense fallback={<p role="status" className="text-ink2">Loading…</p>}>
             <Outlet />

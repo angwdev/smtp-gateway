@@ -1,4 +1,3 @@
-import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import { useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router';
@@ -11,6 +10,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Empty, Failure, Loading } from '../components/States';
 import { LoginForm } from '../components/LoginForm';
 import { MessageRow } from '../components/MessageRow';
+import { Notice } from '../components/Notice';
 import { PageHeader } from '../components/PageHeader';
 import { SecretReveal } from '../components/SecretReveal';
 import { Section } from '../components/Section';
@@ -49,7 +49,7 @@ export function LoginDetail() {
       />
 
       <Section title="Settings">
-        {saved && <Alert severity="success" className="mb-4">Saved.</Alert>}
+        {saved && <Notice kind="success" className="mb-4">Saved.</Notice>}
         <LoginForm
           mode="edit"
           initial={{
