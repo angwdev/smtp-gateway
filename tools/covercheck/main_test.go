@@ -33,8 +33,9 @@ func TestCheck(t *testing.T) {
 	if r := got["application"]; r.total != 100 || r.covered != 96 || r.ok {
 		t.Errorf("application = %+v", r)
 	}
-	// Mocks, the moved ACME code and cmd/ are not gated.
-	if r := got["infrastructure"]; r.total != 0 {
+	// Mocks, the moved ACME code and cmd/ are not gated, and a layer with no
+	// statements left fails the gate instead of passing as 100%.
+	if r := got["infrastructure"]; r.total != 0 || r.ok {
 		t.Errorf("infrastructure = %+v", r)
 	}
 }

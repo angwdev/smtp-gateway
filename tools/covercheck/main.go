@@ -37,7 +37,7 @@ type result struct {
 
 func (r result) percent() float64 {
 	if r.total == 0 {
-		return 100
+		return 0
 	}
 	return 100 * float64(r.covered) / float64(r.total)
 }
@@ -101,7 +101,7 @@ func check(profile io.Reader) ([]result, error) {
 		}
 	}
 	for i := range results {
-		results[i].ok = results[i].percent() >= results[i].min
+		results[i].ok = results[i].total > 0 && results[i].percent() >= results[i].min // an empty layer means a broken profile, not full coverage
 	}
 	return results, nil
 }

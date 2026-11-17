@@ -58,7 +58,7 @@ func (h *TokenHandler) Create(c *gin.Context) {
 		middleware.Fail(c, err)
 		return
 	}
-	middleware.MarkAudited(c)
+	middleware.MarkAudited(c) // defensive: /tokens is session-only, so no api.call row could be written anyway
 	c.Header("Cache-Control", "no-store")
 	c.JSON(http.StatusCreated, TokenSecretResponse{Token: fromToken(t), Secret: secret})
 }
@@ -74,6 +74,6 @@ func (h *TokenHandler) Revoke(c *gin.Context) {
 		middleware.Fail(c, err)
 		return
 	}
-	middleware.MarkAudited(c)
+	middleware.MarkAudited(c) // defensive: /tokens is session-only, so no api.call row could be written anyway
 	c.Status(http.StatusNoContent)
 }
