@@ -14,4 +14,4 @@ exec docker run --rm -u "$(id -u):$(id -g)" \
   -v "$CACHE/pkg":/go/pkg -v "$CACHE/build":/gocache \
   -e GOCACHE=/gocache -e HOME=/tmp -e GOFLAGS=-buildvcs=false \
   -e CGO_ENABLED -e GOOS -e GOARCH -e GOARM \
-  golang:1.26 go "$@"
+  golang:1.27 go "$@"
