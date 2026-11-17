@@ -18,11 +18,14 @@ var _ audit.Repository = (*AuditRepository)(nil)
 // NewAuditRepository returns a repository over db.
 func NewAuditRepository(db *DB) *AuditRepository { return &AuditRepository{db: db} }
 
+// truncate cuts s to at most maxBytes bytes, dropping a rune that the cut
+// may have split in two (strings.ToValidUTF8, consistent with
+// application/message/headers.go) rather than leaving invalid UTF-8 behind.
 func truncate(s string, maxBytes int) string {
 	if len(s) <= maxBytes {
 		return s
 	}
-	return s[:maxBytes]
+	return strings.ToValidUTF8(s[:maxBytes], "")
 }
 
 // Append writes e and fills e.ID. Oversized fields are truncated rather than

@@ -4,8 +4,10 @@ package sqlite
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -64,6 +66,20 @@ func TestAuditRepository(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, got, 1)
 		assert.Len(t, got[0].Detail, audit.MaxDetail)
+	})
+
+	t.Run("a multibyte detail is truncated without splitting a rune", func(t *testing.T) {
+		// "本" is 3 bytes; 400 repeats is 1200 bytes, over MaxDetail (1000),
+		// and 1000 is not a multiple of 3, so a byte-only cut would split
+		// the last rune in two and produce invalid UTF-8.
+		long := strings.Repeat("本", 400)
+		e := record(t0, "cli", audit.ActorCLI, "upstream.test", audit.ResultOK, long, "", nil)
+		got, err := repo.List(ctx, audit.Filter{BeforeID: e.ID + 1, Limit: 1})
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.True(t, utf8.ValidString(got[0].Detail), "truncated detail must stay valid UTF-8")
+		assert.LessOrEqual(t, len(got[0].Detail), audit.MaxDetail)
+		assert.NotEmpty(t, got[0].Detail)
 	})
 
 	t.Run("filter by action prefix and exact action", func(t *testing.T) {

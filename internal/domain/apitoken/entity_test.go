@@ -25,6 +25,12 @@ func TestNew(t *testing.T) {
 	assert.Equal(t, "ana@example.com", tok.CreatedBy)
 }
 
+func TestNewTrimsNameBeforeValidation(t *testing.T) {
+	tok, _, err := New(" lead", ScopeRead, nil, "", t0)
+	require.NoError(t, err, "leading/trailing whitespace is friendlier to trim than to reject")
+	assert.Equal(t, "lead", tok.Name)
+}
+
 func TestNewValidation(t *testing.T) {
 	future := t0.Add(time.Hour)
 	past := t0.Add(-time.Hour)

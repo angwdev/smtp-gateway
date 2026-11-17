@@ -50,6 +50,7 @@ type Token struct {
 // New validates the input and returns the token with its plaintext secret,
 // which is shown once and never stored.
 func New(name string, scope Scope, expiresAt *time.Time, createdBy string, now time.Time) (*Token, string, error) {
+	// Names are trimmed before validation, so " lead" is accepted as "lead".
 	name = strings.TrimSpace(name)
 	if !nameRe.MatchString(name) {
 		return nil, "", shared.Invalid("name", "Use 1-64 letters, digits, spaces or . _ -")
