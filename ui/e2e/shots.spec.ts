@@ -148,3 +148,118 @@ test.describe('audit expanded detail', () => {
     }
   }
 });
+
+// States that only appear after an interaction, not on a plain route load:
+// a saved-settings notice, both secret-reveal flows, a non-field form error
+// and a page-level failure (no result colour, no card, errors stay on page).
+// Shot at phone (390) and desktop (1366), both themes, per the plan's rule
+// for interaction-gated states (see "messages-filter-open" above).
+const INTERACTION_VIEWPORTS = VIEWPORTS.filter((v) => v.name === 'phone' || v.name === 'desktop');
+
+for (const viewport of INTERACTION_VIEWPORTS) {
+  for (const theme of THEMES) {
+    test.describe(`notice and error states ${viewport.name} ${theme}`, () => {
+      test.use({ viewport: { width: viewport.width, height: viewport.height } });
+
+      test(`login-saved-${viewport.name}-${theme}`, async ({ page }) => {
+        await page.addInitScript((mode) => localStorage.setItem('mui-mode', mode), theme);
+        await mockApi(page);
+        await page.goto('/logins/11');
+        await expect(page.getByRole('heading', { level: 1, name: 'nextcloud' })).toBeVisible({ timeout: 10_000 });
+        await page.getByLabel('Description').fill('File sync (updated)');
+        await page.getByRole('button', { name: 'Save changes' }).click();
+        await expect(page.getByText('Saved.')).toBeVisible();
+
+        const label = `login-saved-${viewport.name}-${theme}`;
+        await checkPage(page, label, viewport);
+        await page.screenshot({ path: `shots-out/${label}.png`, fullPage: true });
+      });
+
+      test(`secret-reveal-new-${viewport.name}-${theme}`, async ({ page }) => {
+        await page.addInitScript((mode) => localStorage.setItem('mui-mode', mode), theme);
+        await mockApi(page);
+        await page.goto('/logins/new');
+        await expect(page.getByRole('heading', { level: 1, name: 'New login' })).toBeVisible({ timeout: 10_000 });
+        await page.getByLabel('Username').fill('new-app');
+        await page.getByRole('button', { name: 'Create login' }).click();
+        await expect(page.getByRole('heading', { name: /Password for/ })).toBeVisible();
+
+        const label = `secret-reveal-new-${viewport.name}-${theme}`;
+        await checkPage(page, label, viewport);
+        await page.screenshot({ path: `shots-out/${label}.png`, fullPage: true });
+      });
+
+      test(`secret-reveal-rotate-${viewport.name}-${theme}`, async ({ page }) => {
+        await page.addInitScript((mode) => localStorage.setItem('mui-mode', mode), theme);
+        await mockApi(page);
+        await page.goto('/logins/11');
+        await expect(page.getByRole('heading', { level: 1, name: 'nextcloud' })).toBeVisible({ timeout: 10_000 });
+        await page.getByRole('button', { name: 'Replace password' }).click();
+        await expect(page.getByRole('heading', { name: /Replace the password/ })).toBeVisible();
+        await page.getByRole('button', { name: 'Replace password' }).click();
+        await expect(page.getByText('sgw-fixture-rotated-secret')).toBeVisible();
+
+        const label = `secret-reveal-rotate-${viewport.name}-${theme}`;
+        await checkPage(page, label, viewport);
+        await page.screenshot({ path: `shots-out/${label}.png`, fullPage: true });
+      });
+
+      test(`form-validation-error-${viewport.name}-${theme}`, async ({ page }) => {
+        await page.addInitScript((mode) => localStorage.setItem('mui-mode', mode), theme);
+        await mockApi(page);
+        // A non-field error (no `details.field`): the form shows the
+        // shared Notice, not a per-field helper text, and it must not be
+        // the "failed" result colour (it is not a delivery result).
+        await page.route('**/api/v1/credentials', async (route) => {
+          if (route.request().method() !== 'POST') return route.fallback();
+          return route.fulfill({
+            status: 409,
+            contentType: 'application/json',
+            body: JSON.stringify({ code: 'CONFLICT', message: 'Too many logins were created in the last minute. Wait a moment and try again.' }),
+          });
+        });
+        await page.goto('/logins/new');
+        await expect(page.getByRole('heading', { level: 1, name: 'New login' })).toBeVisible({ timeout: 10_000 });
+        await page.getByLabel('Username').fill('new-app');
+        await page.getByRole('button', { name: 'Create login' }).click();
+        await expect(page.getByText(/Too many logins were created/)).toBeVisible();
+
+        const label = `form-validation-error-${viewport.name}-${theme}`;
+        await checkPage(page, label, viewport);
+        await page.screenshot({ path: `shots-out/${label}.png`, fullPage: true });
+      });
+
+      test(`page-error-state-${viewport.name}-${theme}`, async ({ page }) => {
+        await page.addInitScript((mode) => localStorage.setItem('mui-mode', mode), theme);
+        await mockApi(page);
+        // A full list-load failure. The page intentionally renders no
+        // PageHeader/h1 in this state (DESIGN.md's Error state is "what
+        // failed + Try again", not a full page chrome), so this test runs
+        // its own light checks instead of the shared checkPage helper.
+        await page.route('**/api/v1/credentials', async (route) => {
+          if (route.request().method() !== 'GET') return route.fallback();
+          return route.fulfill({
+            status: 500,
+            contentType: 'application/json',
+            body: JSON.stringify({ code: 'INTERNAL_ERROR', message: 'The database is temporarily unavailable. Try again in a moment.' }),
+          });
+        });
+        await page.goto('/logins');
+        await expect(page.getByRole('alert')).toBeVisible({ timeout: 10_000 });
+        await expect(page.getByText('Could not load this.')).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
+
+        const overflow = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+        expect(overflow, 'page-error-state: horizontal overflow').toBe(true);
+
+        const label = `page-error-state-${viewport.name}-${theme}`;
+        // Shot before the axe scan: axe can move focus while auditing tab
+        // order, which would otherwise leave a stray focus ring in the shot.
+        await page.screenshot({ path: `shots-out/${label}.png`, fullPage: true });
+
+        const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
+        expect(axe.violations, `page-error-state: axe violations ${JSON.stringify(axe.violations.map((v) => v.id))}`).toEqual([]);
+      });
+    });
+  }
+}
