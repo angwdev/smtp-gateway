@@ -54,13 +54,26 @@ mail server using **one** upstream credential.
 - **AUTH PLAIN and LOGIN** for clients. Upstream can use STARTTLS, implicit TLS or
   plain, with PLAIN or LOGIN auth. You can optionally force a fixed envelope sender
   upstream (`UPSTREAM_ENVELOPE_FROM`).
+- **Richer logs**: the message log keeps the subject and the full header block
+  (never the body), and the audit log records who did what, when, from where, and
+  (for panel changes) a before/after diff. SMTP sign-in failures and lockouts, and
+  failed API tokens, are logged too.
+- **HTTP API**: everything the panel can do is also available as a versioned JSON
+  API under `/api/v1`, authenticated with a bearer token you create in the panel,
+  scoped to read-only or read/write. Every call is audited.
 - **Panel**: OIDC (authorization code + PKCE) with any provider (Authentik,
   Authelia, Keycloak, Zitadel, Pocket ID, Kanidm, Google, Entra ID…). You can limit
   access by e-mail, by domain or by group. It has CSRF protection, a strict CSP and
-  no JavaScript framework. It shows the message log (searchable, retention
-  configurable), an audit log of every sign-in and change, the certificate's status
-  with a "Renew now" button, and a button that tests the upstream connection. It is
-  dark by default, with light and system themes.
+  is a small React app with no third-party network calls. It shows the message log
+  (searchable, retention configurable), the audit log, API token management, the
+  certificate's status with a "Renew now" button, and a button that tests the
+  upstream connection. Light by default, with a dark theme too.
+
+## Screenshots
+
+| Messages, phone, light theme | Audit log, desktop, light theme |
+|---|---|
+| ![Messages list on a phone-sized screen, light theme](docs/img/messages-phone-light.png) | ![Audit log on a desktop-sized screen, light theme](docs/img/audit-desktop-light.png) |
 
 ## Quick start
 
@@ -235,7 +248,9 @@ Variables that hold secrets (`UPSTREAM_PASSWORD`, `OIDC_CLIENT_SECRET`,
 | `OIDC_ALLOWED_GROUPS` | | Matched against `OIDC_GROUPS_CLAIM` (default `groups`) |
 | `SESSION_TTL` | `8h` | |
 | `SESSION_SECRET` | auto | Generated and stored in the database if unset |
+| `WEB_TRUSTED_PROXIES` | | Reverse proxies whose `X-Forwarded-For` is trusted (IPs or CIDRs); see "Behind a reverse proxy" below |
 | `LOG_RETENTION_DAYS` | `30` | For the message and audit logs |
+| `LOG_MESSAGE_CONTENT` | `headers` | `headers`, `subject` or `none`; see "What is logged" below |
 | `LOG_LEVEL` | `info` | |
 
 If both allow-lists are empty, anyone your IdP authenticates for this client can
@@ -258,6 +273,107 @@ sign in. A warning is logged at startup in that case.
 5. If anything goes wrong mid-transfer, the upstream connection is dropped before
    the final dot, so a truncated message is never delivered. Network problems
    return `4xx`, so clients retry instead of bouncing.
+
+## HTTP API
+
+Everything the panel's UI can do is also available as a versioned JSON API under
+`/api/v1`. The OpenAPI document is served at `/api/v1/openapi.yaml` (also in the
+repo at [`api/openapi.yaml`](api/openapi.yaml)).
+
+1. **Create a token** in the panel: *API tokens* → *New token*, choose a name and a
+   scope, and copy the value shown — it starts with `sgw_` and is shown exactly
+   once.
+2. **Call the API** with it as a bearer token:
+
+   ```sh
+   curl -H "Authorization: Bearer sgw_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
+        https://smtp-panel.example.com/api/v1/messages?limit=5
+   ```
+
+**Scopes:**
+
+| Scope | Can | Cannot |
+|---|---|---|
+| `read` | `GET` everything under `/api/v1` (overview, credentials, messages, audit) | Create, change or delete anything; manage tokens |
+| `write` | Everything `read` can, plus create/update/rotate/delete credentials, test the upstream, renew the certificate | Create or revoke API tokens |
+| session (signed-in person) | Everything `write` can, plus create and revoke API tokens | — |
+
+A token can never manage other tokens, even with `write` scope — minting and
+revoking tokens needs the panel session itself, so a leaked token can't be used to
+mint itself a replacement.
+
+**Errors** are a JSON body with a machine-readable `code`:
+
+```json
+{"code":"VALIDATION_ERROR","message":"username is required","details":{"field":"username"}}
+```
+
+`code` is one of `VALIDATION_ERROR` (400), `UNAUTHORIZED` (401), `FORBIDDEN` (403),
+`NOT_FOUND` (404), `METHOD_NOT_ALLOWED` (405), `CONFLICT` (409), `RATE_LIMITED`
+(429) or `INTERNAL_ERROR` (500).
+
+## What is logged
+
+Every message's log entry has the envelope (sender, recipients, size, the
+credential and remote IP used), the result (`sent`, `rejected` or `failed`) and
+detail, the subject, and — depending on `LOG_MESSAGE_CONTENT` — the headers:
+
+| `LOG_MESSAGE_CONTENT` | Kept |
+|---|---|
+| `headers` (default) | Subject and the full header block, capped at 16 KiB |
+| `subject` | Subject only |
+| `none` | Neither subject nor headers |
+
+**The message body is never stored**, whatever this setting is. Message and audit
+rows are kept for `LOG_RETENTION_DAYS` (default 30) and pruned hourly after that.
+
+## Audit log
+
+Every sign-in, panel change, API token action and SMTP/API authentication failure
+is recorded with who did it, when, the result, the IP and user agent, and — for
+panel changes — a before/after diff. The actions are:
+
+| Action | Recorded when |
+|---|---|
+| `session.login` | A person signs in through OIDC |
+| `session.login_denied` | OIDC succeeded but the account isn't in `OIDC_ALLOWED_EMAILS`/`OIDC_ALLOWED_GROUPS` |
+| `session.logout` | A person signs out |
+| `credential.create` | A login is created |
+| `credential.update` | A login's description, sender policy or rate limit changes |
+| `credential.enable` | A login is turned back on |
+| `credential.disable` | A login is turned off |
+| `credential.rotate` | A login's password is replaced |
+| `credential.delete` | A login is deleted |
+| `token.create` | An API token is created |
+| `token.revoke` | An API token is revoked |
+| `token.auth_failed` | A request used a bearer token that isn't valid, has expired or was revoked |
+| `certificate.renew` | A manual "Renew now" is requested |
+| `upstream.test` | The "Test connection" button is used |
+| `smtp.auth_failed` | An SMTP client's AUTH attempt is rejected |
+| `smtp.lockout` | An IP is locked out after too many failed SMTP AUTH attempts (`SMTP_AUTH_FAIL_LIMIT`/`SMTP_AUTH_FAIL_WINDOW`) |
+| `api.call` | Any other successful or failed API call made with a bearer token (so every token use leaves a trace even when it didn't trigger one of the specific actions above) |
+
+Sign-in failures over both SMTP and the API are rate-limited in the log itself (a
+token bucket per source), so a brute-force attempt produces a bounded number of
+rows, not one per attempt; the count of rows dropped by that limit is logged once
+a minute.
+
+## Behind a reverse proxy
+
+By default the gateway treats the direct TCP peer as the client's address for
+rate limiting and audit `ip` values. Behind a reverse proxy that peer is the
+proxy itself, which is useless for both. Set `WEB_TRUSTED_PROXIES` to the proxy's
+address or subnet (comma separated, IPs or CIDRs) and the gateway reads
+`X-Forwarded-For` from it instead — for example, behind Traefik on its default
+Docker network:
+
+```env
+WEB_TRUSTED_PROXIES=172.18.0.0/16
+```
+
+Left empty (the default), `X-Forwarded-For` is never read, so a client can't spoof
+its IP by sending that header directly — the socket address is always used
+instead. Only widen this to networks you actually trust.
 
 ## Troubleshooting sign-in
 
@@ -291,21 +407,44 @@ level=INFO msg="sso: identity provider found; register redirect_uri exactly as l
 
 ## Third-party assets
 
-The panel embeds [IBM Plex Sans and Plex Mono](https://github.com/IBM/plex) (SIL Open
-Font License 1.1, `internal/web/static/fonts/OFL.txt`) and icons from
-[Phosphor](https://phosphoricons.com) (MIT, `internal/web/static/PHOSPHOR-LICENSE.txt`).
-Nothing is loaded from third-party servers.
+The panel self-hosts [Atkinson Hyperlegible Next and Atkinson Hyperlegible
+Mono](https://github.com/ApplePieCorp/atkinson-hyperlegible) (SIL Open Font
+License 1.1, via `@fontsource-variable/*`) and icons from
+[Material Icons](https://mui.com/material-ui/material-icons/) (`@mui/icons-material`,
+Apache 2.0). Nothing is loaded from third-party servers.
+
+## Upgrading from 0.1
+
+- **The database migrates itself on first start.** No manual step is needed:
+  Goose migrations run before the server starts accepting connections.
+- **Back up `gateway.db` first anyway** (see "Operations" above) — the usual
+  advice for any upgrade that touches the schema.
+- **Existing panel sessions end.** Sessions are now tracked server-side (so
+  logout actually revokes them), which the old cookie format can't do. Everyone
+  signs in again once; no action is needed beyond that.
+- **The panel's URL paths changed** (it is now a single-page app with client-side
+  routing instead of server-rendered pages), but old bookmarks to the previous
+  paths redirect to their new equivalents.
+- **SMTP clients need no change.** The listener addresses, ports, AUTH mechanisms
+  and credentials are exactly as before; only the panel and its data model changed.
 
 ## Development
 
 ```sh
-docker compose build                # after uncommenting `build: .` in docker-compose.yml
-go test -race ./...                 # end-to-end tests with a fake upstream and a mock OIDC provider
+tools/go test -race ./...           # same as `make test`, but a single invocation
+make check                          # vet, lint, tests with coverage, per-layer gates
+make ui                             # build the React panel and embed it for `go run`
+go run ./cmd/smtp-gateway            # reads the same env vars
+cd ui && bun run shots              # screenshot suite (phone/tablet/desktop, light/dark)
 # The ACME test runs only when Pebble is installed:
 go install github.com/letsencrypt/pebble/v2/cmd/pebble@v2.10.1
 go install github.com/letsencrypt/pebble/v2/cmd/pebble-challtestsrv@v2.10.1
-go run ./cmd/smtp-gateway           # reads the same env vars
 ```
 
-Releases: push a tag like `v0.2.0`. CI runs the tests, then builds and publishes
-the multi-arch image to GHCR.
+Go runs through `tools/go`, a thin wrapper around a `golang:1.26` container (the
+build host needs no local Go install); set `SMTPGW_LOCAL_GO=1` to use a local
+`go` on `PATH` instead. UI commands run with **bun**, not npm (`bun install
+--frozen-lockfile`, `bun run <script>`; see `ui/package.json`).
+
+Releases: push a tag like `v0.2.0`. CI runs the Go and UI gates, then builds and
+publishes the multi-arch image to GHCR.
