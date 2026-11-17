@@ -6,9 +6,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/angwdev/smtp-gateway/internal/domain/apitoken"
 	"github.com/angwdev/smtp-gateway/internal/domain/audit"
 	"github.com/angwdev/smtp-gateway/internal/domain/credential"
 	"github.com/angwdev/smtp-gateway/internal/domain/message"
+	"github.com/angwdev/smtp-gateway/internal/domain/session"
 )
 
 // Timestamps are unix seconds, as in v1. The helpers keep the conversion in
@@ -168,3 +170,71 @@ func (m *auditEventModel) toDomain() (*audit.Event, error) {
 	}
 	return out, nil
 }
+
+type apiTokenModel struct {
+	ID         int64  `gorm:"column:id;primaryKey"`
+	Name       string `gorm:"column:name"`
+	TokenHash  string `gorm:"column:token_hash"`
+	Hint       string `gorm:"column:hint"`
+	Scope      string `gorm:"column:scope"`
+	CreatedAt  int64  `gorm:"column:created_at;autoCreateTime:false"`
+	CreatedBy  string `gorm:"column:created_by"`
+	ExpiresAt  *int64 `gorm:"column:expires_at"`
+	LastUsedAt *int64 `gorm:"column:last_used_at"`
+	LastUsedIP string `gorm:"column:last_used_ip"`
+	RevokedAt  *int64 `gorm:"column:revoked_at"`
+}
+
+// TableName overrides GORM's pluralisation guess.
+func (apiTokenModel) TableName() string { return "api_tokens" }
+
+func (m *apiTokenModel) toDomain() *apitoken.Token {
+	return &apitoken.Token{
+		ID: m.ID, Name: m.Name, Hash: m.TokenHash, Hint: m.Hint, Scope: apitoken.Scope(m.Scope),
+		CreatedAt: time.Unix(m.CreatedAt, 0), CreatedBy: m.CreatedBy, ExpiresAt: timePtr(m.ExpiresAt),
+		LastUsedAt: timePtr(m.LastUsedAt), LastUsedIP: m.LastUsedIP, RevokedAt: timePtr(m.RevokedAt),
+	}
+}
+
+func apiTokenModelFrom(t *apitoken.Token) *apiTokenModel {
+	return &apiTokenModel{
+		ID: t.ID, Name: t.Name, TokenHash: t.Hash, Hint: t.Hint, Scope: string(t.Scope),
+		CreatedAt: t.CreatedAt.Unix(), CreatedBy: t.CreatedBy, ExpiresAt: unixPtr(t.ExpiresAt),
+		LastUsedAt: unixPtr(t.LastUsedAt), LastUsedIP: t.LastUsedIP, RevokedAt: unixPtr(t.RevokedAt),
+	}
+}
+
+type sessionModel struct {
+	IDHash    string `gorm:"column:id_hash;primaryKey"`
+	Email     string `gorm:"column:email"`
+	Name      string `gorm:"column:name"`
+	CreatedAt int64  `gorm:"column:created_at;autoCreateTime:false"`
+	ExpiresAt int64  `gorm:"column:expires_at"`
+	IP        string `gorm:"column:ip"`
+	UserAgent string `gorm:"column:user_agent"`
+}
+
+// TableName overrides GORM's pluralisation guess.
+func (sessionModel) TableName() string { return "sessions" }
+
+func (m *sessionModel) toDomain() *session.Session {
+	return &session.Session{
+		IDHash: m.IDHash, Email: m.Email, Name: m.Name, CreatedAt: time.Unix(m.CreatedAt, 0),
+		ExpiresAt: time.Unix(m.ExpiresAt, 0), IP: m.IP, UserAgent: m.UserAgent,
+	}
+}
+
+func sessionModelFrom(s *session.Session) *sessionModel {
+	return &sessionModel{
+		IDHash: s.IDHash, Email: s.Email, Name: s.Name, CreatedAt: s.CreatedAt.Unix(),
+		ExpiresAt: s.ExpiresAt.Unix(), IP: s.IP, UserAgent: s.UserAgent,
+	}
+}
+
+type settingModel struct {
+	Key   string `gorm:"column:key;primaryKey"`
+	Value string `gorm:"column:value"`
+}
+
+// TableName overrides GORM's pluralisation guess.
+func (settingModel) TableName() string { return "settings" }
