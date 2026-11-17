@@ -40,7 +40,7 @@ func Open(ctx context.Context, path string, log *slog.Logger) (*DB, error) {
 	}
 	write.SetMaxOpenConns(1)
 	write.SetMaxIdleConns(1)
-	if err := Migrate(ctx, write); err != nil {
+	if err := Migrate(ctx, write, log); err != nil {
 		return nil, errors.Join(err, write.Close())
 	}
 

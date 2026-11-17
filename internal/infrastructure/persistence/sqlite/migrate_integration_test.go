@@ -5,6 +5,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -31,12 +32,13 @@ func tableExists(t *testing.T, db *sql.DB, name string) bool {
 
 func TestMigrateFreshDatabase(t *testing.T) {
 	db := openRaw(t)
-	require.NoError(t, Migrate(context.Background(), db))
+	log := slog.New(slog.DiscardHandler)
+	require.NoError(t, Migrate(context.Background(), db, log))
 	for _, name := range []string{"credentials", "messages", "message_headers", "audit_events", "api_tokens", "sessions", "settings"} {
 		assert.True(t, tableExists(t, db, name), name)
 	}
 	assert.False(t, tableExists(t, db, "audit"), "v1 audit table must be gone")
-	require.NoError(t, Migrate(context.Background(), db), "second run must be a no-op")
+	require.NoError(t, Migrate(context.Background(), db, log), "second run must be a no-op")
 }
 
 func TestMigrateAdoptsV1Database(t *testing.T) {
@@ -46,7 +48,7 @@ func TestMigrateAdoptsV1Database(t *testing.T) {
 	_, err = db.Exec(string(legacy))
 	require.NoError(t, err)
 
-	require.NoError(t, Migrate(context.Background(), db))
+	require.NoError(t, Migrate(context.Background(), db, slog.New(slog.DiscardHandler)))
 
 	var hash, subject, key string
 	require.NoError(t, db.QueryRow(`SELECT secret_hash FROM credentials WHERE username = 'nextcloud'`).Scan(&hash))

@@ -42,7 +42,10 @@ const (
 
 // Run builds the application and serves until ctx is cancelled or a server
 // fails. Every goroutine it starts is owned by one errgroup, so all of them
-// stop together and Run returns the first real error.
+// stop together and Run returns the first real error. The one exception is
+// oidc.CheckProvider, a diagnostic-only check that runs in a bounded
+// fire-and-forget goroutine (its own 15-second timeout) because its result
+// is logged, never awaited.
 func Run(ctx context.Context, cfg *config.Config, version string) error {
 	log := slog.Default()
 	log.Info("starting smtp-gateway", "version", version, "hostname", cfg.Hostname,
@@ -76,6 +79,12 @@ func Run(ctx context.Context, cfg *config.Config, version string) error {
 	tokens := apptoken.NewHandler(tokenRepo, recorder)
 	sessions := appsession.NewHandler(sessionRepo, cfg.SessionTTL)
 
+	// A cancellable context, separate from errgroup's own, lets buildPanel's
+	// failure path below stop the goroutines already scheduled (acmeMgr.Run,
+	// gateway.Run) and wait for them before returning, instead of leaving
+	// them running while the deferred db.Close above races their queries.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	g, gctx := errgroup.WithContext(ctx)
 
 	certs, acmeMgr, err := setupTLS(cfg, log)
@@ -92,6 +101,8 @@ func Run(ctx context.Context, cfg *config.Config, version string) error {
 	if cfg.WebAddr != "" {
 		router, limiters, err := buildPanel(gctx, cfg, version, log, db, settings, recorder, creds, msgs, tokens, sessions, auditRepo, up, certs, acmeMgr)
 		if err != nil {
+			cancel()
+			_ = g.Wait()
 			return err
 		}
 		for _, l := range limiters {
