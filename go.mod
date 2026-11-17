@@ -1,6 +1,6 @@
 module github.com/angwdev/smtp-gateway
 
-go 1.26.0
+go 1.27.0
 
 // Keep Go tooling out of the UI's node_modules (some npm packages ship .go files).
 ignore ./ui/node_modules

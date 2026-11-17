@@ -610,7 +610,7 @@ erDiagram
 
 ### Toolchain
 
-Go runs through `tools/go`, a thin wrapper around a `golang:1.26` container (the
+Go runs through `tools/go`, a thin wrapper around a `golang:1.27` container (the
 build host needs no local Go install); set `SMTPGW_LOCAL_GO=1` to use a local
 `go` on `PATH` instead. UI commands run with **bun**, not npm (`bun install
 --frozen-lockfile`, `bun run <script>`; see `ui/package.json`).
