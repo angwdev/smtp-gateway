@@ -58,6 +58,7 @@ func (h *TokenHandler) Create(c *gin.Context) {
 		middleware.Fail(c, err)
 		return
 	}
+	middleware.MarkAudited(c)
 	c.Header("Cache-Control", "no-store")
 	c.JSON(http.StatusCreated, TokenSecretResponse{Token: fromToken(t), Secret: secret})
 }
@@ -73,5 +74,6 @@ func (h *TokenHandler) Revoke(c *gin.Context) {
 		middleware.Fail(c, err)
 		return
 	}
+	middleware.MarkAudited(c)
 	c.Status(http.StatusNoContent)
 }

@@ -623,6 +623,43 @@ func TestTokenAPI(t *testing.T) {
 	assert.Equal(t, "expires_at", verr.Details["field"])
 }
 
+// forwardedForAttempt sends a bad bearer token with a forged
+// X-Forwarded-For header and returns the token.auth_failed audit row it
+// produced, so the recorded IP can be checked against the socket peer
+// (section 2.4, "Client IP").
+func (e *env) forwardedForAttempt(t *testing.T, forged string) *domainaudit.Event {
+	t.Helper()
+	before := len(e.auditByAction("token.auth_failed"))
+	req, err := nethttp.NewRequest(nethttp.MethodGet, e.panel.URL+"/api/v1/overview", nethttp.NoBody)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer sgw_wrongwrongwrongwrongwrongwrongwrongwrong")
+	req.Header.Set("X-Forwarded-For", forged)
+	resp, err := (&nethttp.Client{}).Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close() //nolint:errcheck // test cleanup
+	assert.Equal(t, 401, resp.StatusCode)
+	events := e.auditByAction("token.auth_failed")
+	require.Len(t, events, before+1)
+	return events[len(events)-1]
+}
+
+func TestClientIPIgnoresForwardedForWithoutTrustedProxy(t *testing.T) {
+	// No WEB_TRUSTED_PROXIES configured: the forged header must be ignored
+	// and the recorded IP must be the real socket peer, not the header.
+	e := newEnv(t, nil)
+	event := e.forwardedForAttempt(t, "203.0.113.9")
+	assert.NotEqual(t, "203.0.113.9", event.IP, "a forged X-Forwarded-For must be ignored without a trusted proxy")
+	assert.Equal(t, "127.0.0.1", event.IP, "the recorded IP must be the socket peer")
+}
+
+func TestClientIPUsesForwardedForInsideTrustedProxy(t *testing.T) {
+	// The test harness connects over 127.0.0.1, so trusting that /32 makes
+	// the peer a configured trusted proxy and X-Forwarded-For is honoured.
+	e := newEnv(t, func(c *config.Config) { c.TrustedProxies = []string{"127.0.0.1/32"} })
+	event := e.forwardedForAttempt(t, "203.0.113.9")
+	assert.Equal(t, "203.0.113.9", event.IP, "inside a trusted proxy CIDR, X-Forwarded-For must be used")
+}
+
 func TestReadEndpoints(t *testing.T) {
 	e := newEnv(t, nil)
 	resp := e.login(map[string]any{"email": "admin@example.com", "email_verified": true, "name": "Ana"})
