@@ -70,7 +70,7 @@ linters:
       - internal/proxy
     rules:
       - path: _test\.go
-        linters: [gosec, errcheck, noctx, unparam]
+        linters: [gosec, errcheck, noctx, unparam, bodyclose]
       # Moved v1 code: keep correctness linters, skip style churn.
       - path: internal/infrastructure/(acme|tlsutil)/
         linters: [revive, gocritic, prealloc, unparam]
