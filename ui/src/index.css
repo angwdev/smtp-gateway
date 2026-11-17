@@ -1,0 +1,83 @@
+/* Layer order: MUI's styles sit in "mui", below Tailwind's utilities. */
+@layer theme, base, mui, components, utilities;
+@import 'tailwindcss';
+
+/* MUI puts .light or .dark on <html>; theme-init.js does it before first paint. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --sg-paper: #faf5ef;
+  --sg-sheet: #fefcfa;
+  --sg-sunken: #f3ede5;
+  --sg-hairline: #ddd4cc;
+  --sg-control: #90847a;
+  --sg-ink: #281c17;
+  --sg-ink2: #584a43;
+  --sg-muted: #73665f;
+  --sg-accent: #c22823;
+  --sg-accentHover: #a91515;
+  --sg-onAccent: #fefbf8;
+  --sg-sent: #206b38;
+  --sg-rejected: #84550f;
+  --sg-failed: #a51d2b;
+  --sg-focus: #0053a5;
+}
+
+.dark {
+  --sg-paper: #18130e;
+  --sg-sheet: #201a16;
+  --sg-sunken: #120d09;
+  --sg-hairline: #3b342e;
+  --sg-control: #7e7269;
+  --sg-ink: #ede7df;
+  --sg-ink2: #c5bcb3;
+  --sg-muted: #a69d94;
+  --sg-accent: #f68678;
+  --sg-accentHover: #ff9f92;
+  --sg-onAccent: #1a0e0d;
+  --sg-sent: #76cf8a;
+  --sg-rejected: #edbb64;
+  --sg-failed: #fe8a88;
+  --sg-focus: #87bafd;
+}
+
+@theme inline {
+  --color-paper: var(--sg-paper);
+  --color-sheet: var(--sg-sheet);
+  --color-sunken: var(--sg-sunken);
+  --color-hairline: var(--sg-hairline);
+  --color-control: var(--sg-control);
+  --color-ink: var(--sg-ink);
+  --color-ink2: var(--sg-ink2);
+  --color-muted: var(--sg-muted);
+  --color-accent: var(--sg-accent);
+  --color-sent: var(--sg-sent);
+  --color-rejected: var(--sg-rejected);
+  --color-failed: var(--sg-failed);
+  --color-focus: var(--sg-focus);
+  --font-sans: 'Atkinson Hyperlegible Next Variable', system-ui, sans-serif;
+  --font-mono: 'Atkinson Hyperlegible Mono Variable', ui-monospace, monospace;
+}
+
+@layer base {
+  html {
+    background-color: var(--sg-paper);
+    color: var(--sg-ink);
+    font-family: var(--font-sans);
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    margin: 0;
+    min-height: 100dvh;
+  }
+  :focus-visible {
+    outline: 2px solid var(--sg-focus);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
