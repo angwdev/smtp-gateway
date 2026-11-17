@@ -30,6 +30,7 @@ export function Audit() {
 
   const apiFilter = useMemo(() => ({
     action: filter.action,
+    target_type: filter.target_type,
     result: filter.result as AuditResult | undefined,
     q: filter.q,
     from: filter.from ? toRFC3339Start(filter.from) : undefined,

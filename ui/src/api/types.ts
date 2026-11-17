@@ -83,6 +83,7 @@ export interface AuditEvent {
 export interface AuditFilter {
   actor?: string;
   action?: string;
+  target_type?: string;
   result?: AuditResult;
   q?: string;
   from?: string;
