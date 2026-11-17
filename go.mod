@@ -2,6 +2,9 @@ module github.com/angwdev/smtp-gateway
 
 go 1.26.0
 
+// Keep Go tooling out of the UI's node_modules (some npm packages ship .go files).
+ignore ./ui/node_modules
+
 require (
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6
