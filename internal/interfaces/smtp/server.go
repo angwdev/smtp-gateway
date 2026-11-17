@@ -44,14 +44,15 @@ const maxHeaderBytes = 64 << 10
 
 // Gateway is the client-facing SMTP server.
 type Gateway struct {
-	cfg      *config.Config
-	creds    Credentials
-	msgs     Messages
-	audit    Auditor
-	upstream Dialer
-	fails    *limiter.FailLimiter
-	servers  []*gosmtp.Server
-	addrs    []net.Addr
+	cfg       *config.Config
+	creds     Credentials
+	msgs      Messages
+	audit     Auditor
+	upstream  Dialer
+	fails     *limiter.FailLimiter
+	servers   []*gosmtp.Server
+	listeners []net.Listener
+	addrs     []net.Addr
 }
 
 // Addrs returns the bound listener addresses (useful with ":0" in tests).
@@ -104,6 +105,7 @@ func (g *Gateway) Start(tlsConf *tls.Config) (<-chan error, error) {
 			return err
 		}
 		g.servers = append(g.servers, s)
+		g.listeners = append(g.listeners, ln)
 		g.addrs = append(g.addrs, ln.Addr())
 		slog.Info("smtp listening", "addr", addr, "implicit_tls", implicitTLS, "starttls", !implicitTLS && tlsConf != nil)
 		go func() {
@@ -136,10 +138,21 @@ func (g *Gateway) closeStarted() {
 }
 
 // Shutdown stops every listener, waiting for ctx or for in-flight sessions
-// to drain.
+// to drain. Each listener is also closed directly: *gosmtp.Server registers
+// a listener for its own bookkeeping only once its Serve goroutine runs, so
+// calling Shutdown right after Start spawns that goroutine (as the partial-
+// start cleanup below does) could race the registration and, through
+// Server.Shutdown alone, miss the socket entirely. Closing our own copy of
+// each listener is a second, synchronous path to the same socket that never
+// depends on that goroutine having run; it must happen after Server.Shutdown
+// (which closes a done signal first) so the closed Serve goroutine never
+// treats the closed listener as an unexpected failure.
 func (g *Gateway) Shutdown(ctx context.Context) {
 	for _, s := range g.servers {
 		_ = s.Shutdown(ctx)
+	}
+	for _, ln := range g.listeners {
+		_ = ln.Close()
 	}
 }
 
