@@ -10,6 +10,7 @@ require (
 	github.com/go-jose/go-jose/v4 v4.1.5
 	github.com/pressly/goose/v3 v3.30.1
 	github.com/stretchr/testify v1.12.1
+	go.uber.org/mock v0.6.0
 	golang.org/x/oauth2 v0.37.0
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.2
