@@ -63,11 +63,6 @@ linters:
             - { pkg: "github.com/angwdev/smtp-gateway/internal/interfaces", desc: "infrastructure must not import interfaces" }
   exclusions:
     generated: lax
-    paths:
-      # v1 packages, deleted in Task 6.2. Remove these three lines there.
-      - internal/store
-      - internal/web
-      - internal/proxy
     rules:
       - path: _test\.go
         linters: [gosec, errcheck, noctx, unparam, bodyclose]
