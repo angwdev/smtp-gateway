@@ -1,9 +1,12 @@
 package sqlite
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
+	"github.com/angwdev/smtp-gateway/internal/domain/audit"
 	"github.com/angwdev/smtp-gateway/internal/domain/credential"
 	"github.com/angwdev/smtp-gateway/internal/domain/message"
 )
@@ -131,3 +134,37 @@ type messageHeaderModel struct {
 
 // TableName overrides GORM's pluralisation guess.
 func (messageHeaderModel) TableName() string { return "message_headers" }
+
+type auditEventModel struct {
+	ID          int64  `gorm:"column:id;primaryKey"`
+	CreatedAt   int64  `gorm:"column:created_at;autoCreateTime:false"`
+	Actor       string `gorm:"column:actor"`
+	ActorType   string `gorm:"column:actor_type"`
+	Action      string `gorm:"column:action"`
+	TargetType  string `gorm:"column:target_type"`
+	TargetID    *int64 `gorm:"column:target_id"`
+	TargetLabel string `gorm:"column:target_label"`
+	Result      string `gorm:"column:result"`
+	IP          string `gorm:"column:ip"`
+	UserAgent   string `gorm:"column:user_agent"`
+	RequestID   string `gorm:"column:request_id"`
+	Detail      string `gorm:"column:detail"`
+	Changes     string `gorm:"column:changes"`
+}
+
+// TableName overrides GORM's pluralisation guess.
+func (auditEventModel) TableName() string { return "audit_events" }
+
+func (m *auditEventModel) toDomain() (*audit.Event, error) {
+	out := &audit.Event{
+		ID: m.ID, CreatedAt: time.Unix(m.CreatedAt, 0), Actor: m.Actor, ActorType: audit.ActorType(m.ActorType),
+		Action: m.Action, TargetType: m.TargetType, TargetID: m.TargetID, TargetLabel: m.TargetLabel,
+		Result: audit.Result(m.Result), IP: m.IP, UserAgent: m.UserAgent, RequestID: m.RequestID, Detail: m.Detail,
+	}
+	if m.Changes != "" {
+		if err := json.Unmarshal([]byte(m.Changes), &out.Changes); err != nil {
+			return nil, fmt.Errorf("decode audit changes of event %d: %w", m.ID, err)
+		}
+	}
+	return out, nil
+}
