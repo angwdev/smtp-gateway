@@ -2,16 +2,20 @@ import type { ReactNode } from 'react';
 import { useEffect } from 'react';
 
 export interface PageHeaderProps {
-  title: string;
+  title: ReactNode;
+  // When title is not plain text (e.g. an icon plus text), titleText supplies
+  // the string used for document.title.
+  titleText?: string;
   description?: string;
   action?: ReactNode;
   back?: { to: string; label: string };
 }
 
-export function PageHeader({ title, description, action, back }: PageHeaderProps) {
+export function PageHeader({ title, titleText, description, action, back }: PageHeaderProps) {
+  const docTitle = titleText ?? (typeof title === 'string' ? title : '');
   useEffect(() => {
-    document.title = `${title} · SMTP Gateway`;
-  }, [title]);
+    if (docTitle) document.title = `${docTitle} · SMTP Gateway`;
+  }, [docTitle]);
 
   return (
     <div className="mb-6">
