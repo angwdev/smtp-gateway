@@ -36,6 +36,10 @@ import (
 	"github.com/angwdev/smtp-gateway/internal/interfaces/limiter"
 )
 
+// maxHeaderBytes bounds how far readHeader scans while looking for the
+// blank line that separates headers from the body; it is a wire-parse
+// limit, not the 16 KiB storage cap applied later in
+// application/message/headers.go.
 const maxHeaderBytes = 64 << 10
 
 // Gateway is the client-facing SMTP server.
@@ -80,7 +84,10 @@ func (g *Gateway) newServer(addr string, tlsConf *tls.Config) *gosmtp.Server {
 }
 
 // Start launches the configured listeners. ListenAndServe errors are sent on
-// the returned channel.
+// the returned channel. If a listener fails to start after an earlier one
+// already succeeded, every listener registered so far is shut down before
+// the error is returned, so a partial start never leaks a bound socket and
+// its Serve goroutine.
 func (g *Gateway) Start(tlsConf *tls.Config) (<-chan error, error) {
 	// one slot per listener, so a failing Serve never blocks on send
 	errc := make(chan error, 2)
@@ -113,10 +120,19 @@ func (g *Gateway) Start(tlsConf *tls.Config) (<-chan error, error) {
 	}
 	if g.cfg.SMTPSAddr != "" {
 		if err := start(g.cfg.SMTPSAddr, true); err != nil {
+			g.closeStarted()
 			return nil, err
 		}
 	}
 	return errc, nil
+}
+
+// closeStarted shuts down every listener already registered by Start,
+// bounded so a stuck Serve goroutine cannot hang Start's error path forever.
+func (g *Gateway) closeStarted() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	g.Shutdown(ctx)
 }
 
 // Shutdown stops every listener, waiting for ctx or for in-flight sessions

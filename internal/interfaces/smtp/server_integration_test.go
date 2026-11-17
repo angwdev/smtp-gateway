@@ -26,6 +26,7 @@ import (
 	domainaudit "github.com/angwdev/smtp-gateway/internal/domain/audit"
 	"github.com/angwdev/smtp-gateway/internal/domain/message"
 	"github.com/angwdev/smtp-gateway/internal/infrastructure/persistence/sqlite"
+	"github.com/angwdev/smtp-gateway/internal/infrastructure/tlsutil"
 	"github.com/angwdev/smtp-gateway/internal/infrastructure/upstream"
 )
 
@@ -538,6 +539,35 @@ func TestFailedLoginsAndLockoutAreAudited(t *testing.T) {
 	}
 	assert.Equal(t, 3, failed)
 	assert.Equal(t, 1, lockout, "one lock-out row per window, not one per blocked attempt")
+}
+
+func TestStartClosesEarlierListenersWhenALaterOneFails(t *testing.T) {
+	// Occupy a port so the SMTPS listener fails to bind after the
+	// submission listener has already started.
+	occupied, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer occupied.Close()
+
+	loader, err := tlsutil.NewSelfSigned(t.TempDir(), "gateway.test")
+	require.NoError(t, err)
+
+	cfg := &config.Config{
+		Hostname:          "gateway.test",
+		SubmissionAddr:    "127.0.0.1:0",
+		SMTPSAddr:         occupied.Addr().String(),
+		AllowInsecureAuth: true,
+	}
+	gw := New(cfg, nil, nil, nil, nil)
+	_, err = gw.Start(loader.Config())
+	require.Error(t, err, "the occupied SMTPS port must make Start fail")
+	require.Len(t, gw.Addrs(), 1, "the submission listener had already registered before the failure")
+
+	firstAddr := gw.Addrs()[0].String()
+	// If Start left the submission listener running, rebinding its exact
+	// address fails with "address already in use".
+	relistened, err := net.Listen("tcp", firstAddr)
+	require.NoError(t, err, "the first listener was not released after the second failed to start")
+	relistened.Close()
 }
 
 func TestRunStopsOnContextCancel(t *testing.T) {
